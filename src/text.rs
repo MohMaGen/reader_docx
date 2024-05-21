@@ -1,6 +1,10 @@
 use raylib::{color::Color, math::Vector2, prelude::Font, text::measure_text_ex};
+use unicode_segmentation::UnicodeSegmentation;
 
-use crate::{block::Scalable, env::Environment};
+use crate::{
+    block::{Block, Scalable},
+    env::Environment,
+};
 
 #[derive(Debug)]
 pub struct TextConfig<'a> {
@@ -60,51 +64,75 @@ impl<'a> TextBuilder<'a> {
         }
     }
 
-    pub fn build(&'a mut self, width: f32) -> &'a Text<'a> {
-        let mut word = &self.content[0..1];
-        let mut first_idx = 0;
-        let mut line_first = 0;
+    pub fn build(&'a mut self, max_width: f32) -> &'a Text<'a> {
+        let text = &mut self.text;
+        text.size = (0., 0.);
 
-        let is_not_word = |c: char| c.is_whitespace();
-        let the_end = |word: &str| word.chars().last().map(is_not_word).unwrap_or(false);
+        let (mut line_start, mut prev_idx) = (0, 0);
 
-        // word ["aboba"], " "
+        for (idx, _) in self.content.grapheme_indices(true) {
+            let line = &self.content[line_start..idx];
+            let Vector2 {
+                x: width,
+                y: height,
+            } = measure_text_ex(text.font, line, text.font_size, text.spacing.0);
 
-        for (idx, c) in self.content[1..].char_indices() {
-            if is_not_word(c) == the_end(word) {
-                word = &self.content[first_idx..=idx];
-            } else {
-                let line = &self.content[line_first..first_idx];
-                let Vector2 { x, .. } = measure_text_ex(
-                    self.text.font,
-                    line,
-                    self.text.font_size,
-                    self.text.spacing.0,
+            if width > max_width {
+                text.content.push(&self.content[line_start..prev_idx]);
+
+                let Vector2 { x: width, .. } = measure_text_ex(
+                    text.font,
+                    &self.content[line_start..prev_idx],
+                    text.font_size,
+                    text.spacing.0,
                 );
+                text.size.0 = text.size.0.max(width);
 
-                if x > width {
-                    self.text.content.push(line);
-                    line_first = first_idx;
-                }
-                first_idx = idx;
+                line_start = prev_idx;
             }
+
+            text.size.1 += height + text.spacing.1;
+            prev_idx = idx;
         }
-        self.text.content.push(&self.content[line_first..]);
+        text.content.push(&self.content[line_start..]);
+
         &self.text
     }
 }
 
 impl Text<'_> {
     pub fn measure_first_line(&self, env: &Environment) -> (f32, f32) {
-        let Vector2 { x, y } =
-            measure_text_ex(self.font, self.content[0], self.font_size.scale(env), self.spacing.0.scale(env));
+        let Vector2 { x, y } = measure_text_ex(
+            self.font,
+            self.content[0],
+            self.font_size.scale(env),
+            self.spacing.0.scale(env),
+        );
         (x, y)
     }
 
     pub fn measure_line_of_this_font(&self, line: &str, env: &Environment) -> (f32, f32) {
-        let Vector2 { x, y } =
-            measure_text_ex(self.font, line, self.font_size.scale(env), self.spacing.0.scale(env));
+        let Vector2 { x, y } = measure_text_ex(
+            self.font,
+            line,
+            self.font_size.scale(env),
+            self.spacing.0.scale(env),
+        );
         (x, y)
+    }
+
+    pub fn get_line_block(&self, line: &str) -> Block {
+        let Vector2 { x, y } = measure_text_ex(self.font, line, self.font_size, self.spacing.0);
+        Block::new((x, y))
     }
 }
 
+impl<'a> From<&'a Text<'_>> for Block {
+    fn from(value: &'a Text<'_>) -> Self {
+        Self {
+            size: value.size,
+            pos: (0., 0.),
+            padding: (0., 0., 0., 0.),
+        }
+    }
+}

@@ -17,7 +17,7 @@ impl Environment {
     pub fn update(&mut self, rl: &mut RaylibHandle) {
         if rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL) {
             self.scale.scale = (self.scale.scale
-                + rl.get_mouse_wheel_move() * self.scale.scale_speed)
+                + rl.get_mouse_wheel_move() * self.scale.scale_speed * self.scale.scale)
                 .max(self.scale.min_scale);
         } else {
             self.scroll.scroll += rl.get_mouse_wheel_move() * self.scroll.scroll_speed;
@@ -43,7 +43,7 @@ impl Default for Environment {
             scale: ScaleState {
                 scale: 1.,
                 scale_speed: 0.1,
-                min_scale: 0.1,
+                min_scale: 0.5,
             },
         }
     }

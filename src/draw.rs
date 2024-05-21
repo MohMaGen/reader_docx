@@ -2,11 +2,12 @@ use raylib::{
     color::Color,
     drawing::{RaylibDraw, RaylibDrawHandle},
     math::Vector2,
-    text::measure_text,
 };
 
 use crate::{
-    block::{Alignment, Block, Scalable}, env::Environment, text::{Text, TextAlign}
+    block::{Alignment, AlignmentHorizontal, AlignmentVertical, Block, Scalable},
+    env::Environment,
+    text::{Text, TextAlign},
 };
 
 pub struct PageConfig {
@@ -16,12 +17,21 @@ pub struct PageConfig {
 }
 
 pub fn draw_page(d: &mut RaylibDrawHandle, cfg: PageConfig, block: Block) -> Block {
+    use AlignmentHorizontal::Center;
+    use AlignmentVertical::Top;
+
     let PageConfig {
         size: (width, height),
         roughtness,
         margin,
     } = cfg;
-    let (x, y) = block.get_child_pos(crate::block::Alignment::Center, cfg.size, margin);
+    let (x, y) = block.get_child_pos(
+        Alignment {
+            vertical: Top,
+            horizontal: Center,
+        },
+        Block::new((width, height)),
+    );
 
     d.draw_rectangle_rounded(
         raylib::ffi::Rectangle {
@@ -38,57 +48,25 @@ pub fn draw_page(d: &mut RaylibDrawHandle, cfg: PageConfig, block: Block) -> Blo
     Block {
         pos: (x, y),
         size: cfg.size,
-        paddings: (10., 10., 10., 10.),
+        padding: margin,
     }
 }
 
-pub struct RawText<'a> {
-    pub content: &'a str,
-    pub font_size: f32,
-    pub color: Color,
-}
+pub fn draw_text(d: &mut RaylibDrawHandle, text: &Text, mut block: Block, env: &Environment) {
+    use AlignmentHorizontal::*;
+    use AlignmentVertical::Top;
 
-pub fn draw_raw_text(d: &mut RaylibDrawHandle, txt: RawText, block: Block, alg: Alignment) {
-    let RawText {
-        content,
-        font_size,
-        color,
-    } = &txt;
-
-    let width = measure_text(content, *font_size as i32);
-
-    let (x, y) = block.get_child_pos(alg, (width as f32, 0.), (0., 0., 0., 0.));
-
-    d.draw_text(content, x as i32, y as i32, *font_size as i32, color);
-}
-
-pub fn draw_text(d: &mut RaylibDrawHandle, text: &Text, block: Block, env: &Environment) {
     let (_, first_line_height) = text.measure_first_line(env);
     let (spacing_x, spacing_y) = text.spacing.scale(env);
 
-    for (idx, line) in text.content.iter().enumerate() {
-        let size = text.measure_line_of_this_font(line, env);
+    for line in text.content.iter() {
+        let line_block = text.get_line_block(line).scale(env);
 
-        let (block_x, block_y) = (
-            block.pos.0 + block.paddings.3,
-            block.pos.1 + block.paddings.0,
-        );
-
-        let line_block = Block {
-            pos: (
-                block_x,
-                block_y + idx as f32 * (first_line_height + spacing_y),
-            ),
-            size: (block.size.0, first_line_height),
-            paddings: (0., 0., 0., 0.),
-        };
         let (x, y) = match text.align {
-            TextAlign::Left => line_block.get_child_pos(Alignment::Left, size, (0., 0., 0., 0.)),
-            TextAlign::Center => {
-                line_block.get_child_pos(Alignment::Center, size, (0., 0., 0., 0.))
-            }
-            TextAlign::Right => line_block.get_child_pos(Alignment::Right, size, (0., 0., 0., 0.)),
-            TextAlign::Justify => line_block.get_child_pos(Alignment::Left, size, (0., 0., 0., 0.)),
+            TextAlign::Left => block.get_child_pos(Alignment::new(Top, Left), line_block),
+            TextAlign::Center => block.get_child_pos(Alignment::new(Top, Center), line_block),
+            TextAlign::Right => block.get_child_pos(Alignment::new(Top, Right), line_block),
+            TextAlign::Justify => block.get_child_pos(Alignment::new(Top, Left), line_block),
         };
 
         d.draw_text_ex(
@@ -99,5 +77,7 @@ pub fn draw_text(d: &mut RaylibDrawHandle, text: &Text, block: Block, env: &Envi
             spacing_x,
             text.color,
         );
+
+        block.add_top_padding(first_line_height + spacing_y);
     }
 }
