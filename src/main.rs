@@ -24,6 +24,10 @@ pub mod docx_document;
 fn main() -> anyhow::Result<()> {
     let args = parse_args_or_exit::<ReaderDoc>(DEFAULT);
 
+    let root = read_file::read(args.input.unwrap().as_path(), Path::new("word/document.xml"))?;
+
+    //let fonts = read_file::read(archive, Path::new("word/fontTable.xml"))?;
+    print_tree(&root);
 
     let (mut rl, thread) = raylib::init()
         .resizable()
@@ -31,10 +35,6 @@ fn main() -> anyhow::Result<()> {
         .title("Hello, World")
         .build();
 
-    let root = read_file::read(args.input.unwrap().as_path(), Path::new("word/document.xml"))?;
-
-    //let fonts = read_file::read(archive, Path::new("word/fontTable.xml"))?;
-    print_tree(&root);
 
     let mut env = Environment::default();
 

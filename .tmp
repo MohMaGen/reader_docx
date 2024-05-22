@@ -13425,7 +13425,7 @@ INFO: GL: Supported extensions count: 229
 INFO: GL: OpenGL device information:
 INFO:     > Vendor:   Intel
 INFO:     > Renderer: Mesa Intel(R) UHD Graphics 630 (CFL GT2)
-INFO:     > Version:  4.6 (Core Profile) Mesa 24.0.5
+INFO:     > Version:  4.6 (Core Profile) Mesa 24.0.7
 INFO:     > GLSL:     4.60
 INFO: GL: DXT compressed textures supported
 INFO: GL: ETC2/EAC compressed textures supported

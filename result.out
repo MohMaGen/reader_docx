@@ -1,0 +1,30 @@
+INFO: Initializing raylib 3.7
+INFO: DISPLAY: Device initialized successfully
+INFO:     > Display size: 1920 x 1080
+INFO:     > Render size:  640 x 480
+INFO:     > Screen size:  640 x 480
+INFO:     > Viewport offsets: 0, 0
+INFO: GLAD: OpenGL extensions loaded successfully
+INFO: GL: Supported extensions count: 229
+INFO: GL: OpenGL device information:
+INFO:     > Vendor:   Intel
+INFO:     > Renderer: Mesa Intel(R) UHD Graphics 630 (CFL GT2)
+INFO:     > Version:  4.6 (Core Profile) Mesa 24.0.7
+INFO:     > GLSL:     4.60
+INFO: GL: DXT compressed textures supported
+INFO: GL: ETC2/EAC compressed textures supported
+INFO: TEXTURE: [ID 1] Texture loaded successfully (1x1 - 1 mipmaps)
+INFO: TEXTURE: [ID 1] Default texture loaded successfully
+INFO: SHADER: [ID 1] Vertex shader compiled successfully
+INFO: SHADER: [ID 2] Fragment shader compiled successfully
+INFO: SHADER: [ID 3] Program shader loaded successfully
+INFO: SHADER: [ID 3] Default shader loaded successfully
+INFO: RLGL: Render batch vertex buffers loaded successfully in RAM (CPU)
+INFO: RLGL: Render batch vertex buffers loaded successfully in VRAM (GPU)
+INFO: RLGL: Default OpenGL state initialized successfully
+INFO: TEXTURE: [ID 2] Texture loaded successfully (128x128 - 1 mipmaps)
+INFO: FONT: Default font loaded successfully
+INFO: TEXTURE: [ID 2] Unloaded texture data from VRAM (GPU)
+INFO: SHADER: [ID 3] Default shader unloaded successfully
+INFO: TEXTURE: [ID 1] Default texture unloaded successfully
+INFO: Window closed successfully
