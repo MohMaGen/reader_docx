@@ -7,64 +7,69 @@ pub mod from_minidom;
 pub mod parse_fonts;
 pub mod content_tree;
 pub mod add_font;
+pub mod display;
 
-#[derive(Default)] pub struct DocxDocument { pub fonts: FontTable,
+#[derive(Default, Debug)]
+pub struct DocxDocument { pub fonts: FontTable,
     pub content: ContentTree,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct FontTable {
     pub fonts: Vec<FontProperties>,
+    pub default_font: FontHandle,
 }
 
 pub type FontHandle = usize;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct FontProperties {
     pub name: String,
     pub variants: HashSet<i32>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct FontVariant {
     pub font_size: usize,
     pub chars: Vec<i32>,
     pub state: FontState,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub enum FontState {
     #[default]
     NotLoaded,
     Loaded(Font),
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct ContentTree {
     pub nodes: Option<Vec<Box<DocxNode>>>
 }
 
+#[derive(Debug)]
 pub enum DocxNode {
     Paragrapth {
-        properties: ParagrapthProperties,
+        properties: ParagraphProperties,
         attrs: Vec<(String, String)>,
         texts: Vec<TextNode>,
     },
     Todo(Element),
 }
 
+#[derive(Debug)]
 pub struct TextNode {
     properties: TextProperties,
     content: String,
 }
 
-#[derive(Default)]
-pub struct ParagrapthProperties {
+#[derive(Default, Debug)]
+pub struct ParagraphProperties {
     pub justify: Justification,
     pub text_properties: TextProperties,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub enum Justification {
     #[default]
     Left,
@@ -73,7 +78,7 @@ pub enum Justification {
     Width,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct TextProperties {
     pub font_handle: FontHandle,
     pub size: TextSize,
@@ -81,13 +86,14 @@ pub struct TextProperties {
     pub width: TextWidth,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub enum TextWidth {
     #[default]
     Regular,
     Bold,
 }
 
+#[derive(Debug)]
 pub struct TextSize(pub f32);
 
 impl Default for TextSize {

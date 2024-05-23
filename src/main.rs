@@ -5,6 +5,7 @@ use std::path::Path;
 use argp::{parse_args_or_exit, DEFAULT};
 use args::ReaderDoc;
 use block::{Block, Scalable, Scrolable};
+use docx_document::DocxDocument;
 use draw::{draw_page, draw_text, PageConfig};
 use env::Environment;
 use font::find_font;
@@ -12,22 +13,32 @@ use raylib::{color::Color, drawing::RaylibDraw};
 use read_file::{print_tree, write_tree};
 use text::TextBuilder;
 
+pub mod args;
 pub mod block;
+pub mod docx_document;
 pub mod draw;
 pub mod env;
 pub mod font;
 pub mod read_file;
 pub mod text;
-pub mod args;
-pub mod docx_document;
 
 fn main() -> anyhow::Result<()> {
     let args = parse_args_or_exit::<ReaderDoc>(DEFAULT);
 
-    let root = read_file::read(args.input.unwrap().as_path(), Path::new("word/document.xml"))?;
+    let root = read_file::read(
+        args.input.clone().unwrap().as_path(),
+        Path::new("word/document.xml"),
+    )?;
 
-    //let fonts = read_file::read(archive, Path::new("word/fontTable.xml"))?;
-    print_tree(&root);
+    let fonts = read_file::read(
+        args.input.unwrap().as_path(),
+        Path::new("word/fontTable.xml"),
+    )?;
+
+    print_tree(&fonts);
+
+    let document = DocxDocument::try_from((&root, &fonts))?;
+    println!("document:\n{document}");
 
     let (mut rl, thread) = raylib::init()
         .resizable()
@@ -35,23 +46,12 @@ fn main() -> anyhow::Result<()> {
         .title("Hello, World")
         .build();
 
-
     let mut env = Environment::default();
 
     let mut root_content = String::new();
     write_tree(&root, &mut root_content)?;
 
     let arial_font = &find_font(&mut rl, &thread, "Liberation Sans", Some("Regular"))?;
-
-    let _ = TextBuilder::fast(text::TextConfig {
-        content: "Aboba and boba going to run above this roofs. a Every time i ...",
-        font_size: 25.,
-        spacing: (1., 1.),
-        color: Color::BLACK,
-        align: text::TextAlign::Center,
-        font: arial_font,
-    })
-    .build(500.);
 
     while !rl.window_should_close() {
         env.update(&mut rl);
