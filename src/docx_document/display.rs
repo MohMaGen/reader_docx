@@ -1,4 +1,6 @@
-use super::{ContentTree, DocxDocument, DocxNode, FontTable, ParagraphProperties, TextNode, TextProperties};
+use super::{
+    ContentTree, DocxDocument, DocxNode, FontTable, ParagraphProperties, TextNode, TextProperties,
+};
 
 const PRE: &'static str = "  ";
 
@@ -71,7 +73,7 @@ impl std::fmt::Display for DocxNode {
             } => {
                 writeln!(f, ":( paragrapth ):")?;
                 writeln!(f, "*")?;
-                display_property("properties", properties, 2, f)?;
+                display_property("properties", format!("{:?}", properties), 2, f)?;
 
                 writeln!(f, "*")?;
                 display_property("attrebutes", format!("{:?}", attrs), 2, f)?;
@@ -83,6 +85,40 @@ impl std::fmt::Display for DocxNode {
                     writeln!(f, "{}", text.to_string().with_indent(2))?;
                 }
                 writeln!(f, "{}|>- end -<|", PRE)?;
+
+                writeln!(f, ":( end ):")
+            }
+            DocxNode::SectrOfProperties {
+                page_type,
+                page_size,
+                page_margin,
+                page_num_type,
+                form_prot,
+                text_direction,
+                document_grid,
+            } => {
+                writeln!(f, ":( paragrapth ):")?;
+
+                writeln!(f, "*")?;
+                display_property("page type", format!("{:?}", page_type), 2, f)?;
+
+                writeln!(f, "*")?;
+                display_property("page size", format!("{:?}", page_size), 2, f)?;
+
+                writeln!(f, "*")?;
+                display_property("page margin", format!("{:?}", page_margin), 2, f)?;
+
+                writeln!(f, "*")?;
+                display_property("page NumType", format!("{:?}", page_num_type), 2, f)?;
+
+                writeln!(f, "*")?;
+                display_property("form prot", format!("{:?}", form_prot), 2, f)?;
+
+                writeln!(f, "*")?;
+                display_property("text direction", format!("{:?}", text_direction), 2, f)?;
+
+                writeln!(f, "*")?;
+                display_property("document grid", format!("{:?}", document_grid), 2, f)?;
 
                 writeln!(f, ":( end ):")
             }
@@ -103,7 +139,7 @@ impl std::fmt::Display for ParagraphProperties {
         display_property("justify", format!("{:?}", self.justify), 2, f)?;
 
         writeln!(f, "*")?;
-        display_property("text properties", &self.text_properties, 2, f)?;
+        display_property("text properties", format!("{:?}", self.text_properties), 2, f)?;
 
         writeln!(f, ":( end ):")
     }
@@ -124,6 +160,15 @@ impl std::fmt::Display for TextProperties {
 
         writeln!(f, "*")?;
         display_property("width", format!("{:?}", self.width), 3, f)?;
+
+        writeln!(f, "*")?;
+        display_property("italic", format!("{:?}", self.italic), 3, f)?;
+
+        writeln!(f, "*")?;
+        display_property("underline", format!("{:?}", self.underline), 3, f)?;
+
+        writeln!(f, "*")?;
+        display_property("color", format!("{:?}", self.color), 3, f)?;
 
         writeln!(f, ":( end ):")
     }
@@ -149,8 +194,7 @@ fn display_property<P: ToString>(
     f: &mut std::fmt::Formatter<'_>,
 ) -> std::fmt::Result {
     writeln!(f, "{}>- {} -<", PRE, name.to_lowercase())?;
-    writeln!(f, "{}", property.to_string().with_indent(indent))?;
-    writeln!(f, "{}>- end -<", PRE)
+    writeln!(f, "{}", property.to_string().with_indent(indent))
 }
 
 trait WithIndent {

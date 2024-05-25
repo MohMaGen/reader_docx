@@ -1,16 +1,18 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, str::FromStr};
 
 use minidom::Element;
-use raylib::text::Font;
+use raylib::{prelude::Color, text::Font};
 
-pub mod from_minidom;
-pub mod parse_fonts;
-pub mod content_tree;
 pub mod add_font;
+pub mod content_tree;
 pub mod display;
+pub mod from_minidom;
+pub mod getters;
+pub mod parse_fonts;
 
 #[derive(Default, Debug)]
-pub struct DocxDocument { pub fonts: FontTable,
+pub struct DocxDocument {
+    pub fonts: FontTable,
     pub content: ContentTree,
 }
 
@@ -42,58 +44,236 @@ pub enum FontState {
     Loaded(Font),
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct ContentTree {
-    pub nodes: Option<Vec<Box<DocxNode>>>
+    pub nodes: Option<Vec<DocxNode>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DocxNode {
     Paragrapth {
         properties: ParagraphProperties,
         attrs: Vec<(String, String)>,
         texts: Vec<TextNode>,
     },
+    SectrOfProperties {
+        page_type: PageType,
+        page_size: PageSize,
+        page_margin: PageMargin,
+        page_num_type: NumType,
+        form_prot: FormProt,
+        text_direction: TextDirection,
+        document_grid: DocumentGrid,
+    },
     Todo(Element),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct PageSize {
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct DocumentGrid {
+    pub char_space: u64,
+    pub line_pitch: u64,
+    pub grid_type: GridType,
+}
+
+#[derive(Debug, Default, Clone)]
+pub enum GridType {
+    #[default]
+    Default,
+}
+
+impl FromStr for GridType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "default" => Ok(GridType::Default),
+            _ => Err(anyhow::Error::msg("invalid grid type")),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum TextDirection {
+    LeftToRightTopToBottom,
+    LeftToRightBottomToTop,
+    RightToLeftTopToBottom,
+    RightToLeftBottomToTop,
+}
+
+impl FromStr for TextDirection {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "lrTb" => Ok(Self::LeftToRightBottomToTop),
+            "lrBt" => Ok(Self::LeftToRightTopToBottom),
+            "rlTb" => Ok(Self::RightToLeftBottomToTop),
+            "rlBt" => Ok(Self::RightToLeftTopToBottom),
+            _ => Err(anyhow::Error::msg("invalid text direction")),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FormProt {
+    pub val: bool,
+}
+impl FromStr for FormProt {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "false" => Ok(FormProt { val: false }),
+            "true" => Ok(FormProt { val: true }),
+            _ => Err(anyhow::Error::msg("Ivalid from prot")),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum NumType {
+    Decimal,
+}
+
+impl FromStr for NumType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "decimal" => Ok(Self::Decimal),
+            _ => Err(anyhow::Error::msg("Ivalid num type")),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PageMargin {
+    pub footer: f32,
+    pub gutter: f32,
+    pub header: f32,
+    pub bottom: f32,
+    pub left: f32,
+    pub right: f32,
+    pub top: f32,
+}
+
+#[derive(Debug, Clone)]
+pub enum PageType {
+    NextPage,
+}
+
+impl FromStr for PageType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "nextPage" => Ok(Self::NextPage),
+            _ => Err(anyhow::Error::msg(format!("Invalid page type: {:?}", s))),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct TextNode {
     properties: TextProperties,
     content: String,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct ParagraphProperties {
-    pub justify: Justification,
-    pub text_properties: TextProperties,
+    pub justify: Option<Justification>,
+    pub text_properties: Option<TextProperties>,
+    pub spacing: SpacingProperties,
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug, Default, Clone)]
+pub struct SpacingProperties {
+    pub line: Option<f32>,
+    pub line_rule: Option<LineRule>,
+    pub after: Option<f32>,
+    pub before: Option<f32>,
+}
+
+#[derive(Debug, Clone)]
+pub enum LineRule {
+    Auto,
+}
+
+impl FromStr for LineRule {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "auto" => Ok(LineRule::Auto),
+            _ => Err(anyhow::Error::msg("Invalid line rule.")),
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone)]
 pub enum Justification {
     #[default]
-    Left,
-    Right,
-    Center,
+    Start,
+    End,
     Width,
 }
 
-#[derive(Default, Debug)]
-pub struct TextProperties {
-    pub font_handle: FontHandle,
-    pub size: TextSize,
-    pub size_cs: TextSize,
-    pub width: TextWidth,
+impl FromStr for Justification {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "start" => Ok(Justification::Start),
+            "end" => Ok(Justification::End),
+            "width" => Ok(Justification::Width),
+            _ => Err(anyhow::Error::msg("invalid justification")),
+        }
+    }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
+pub struct TextProperties {
+    pub font_handle: FontHandle,
+    pub size: Option<TextSize>,
+    pub size_cs: Option<TextSize>,
+    pub width: TextWidth,
+    pub color: Option<ColorValue>,
+    pub underline: bool,
+    pub italic: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ColorValue(pub Color);
+
+impl FromStr for ColorValue {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let num = u32::from_str_radix(s, 16)?.to_be_bytes();
+
+        Ok(Self(Color {
+            r: num[1],
+            g: num[2],
+            b: num[3],
+            a: 225,
+        }))
+    }
+}
+
+#[derive(Default, Debug, Clone)]
 pub enum TextWidth {
     #[default]
     Regular,
     Bold,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TextSize(pub f32);
 
 impl Default for TextSize {

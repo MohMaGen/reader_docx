@@ -43,7 +43,7 @@ impl Default for Environment {
             scale: ScaleState {
                 scale: 1.,
                 scale_speed: 0.1,
-                min_scale: 0.5,
+                min_scale: 0.25,
             },
         }
     }
