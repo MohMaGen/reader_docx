@@ -1,15 +1,20 @@
+cargo-features = ["edition2024"]
+
 [package]
 name = "reader_docx"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-raylib = "3.7.0"
+raylib = "5.0.1"
 fontconfig = "0.8"
-zip = "1.1.1"
+zip = "2.1"
 minidom = "0.15.2"
 anyhow = "1.0.82"
 nestify = "0.3.3"
 unicode-segmentation = "1.11.0"
 lazy_static = "1.4.0"
 argp = "0.3.0"
+iced = { version = "0.12.1", features = ["advanced", "debug", "highlighter", "tokio"] }
+rfd = "0.14.1"
+tokio = { version = "1.37.0", features = ["fs", "rt"] }

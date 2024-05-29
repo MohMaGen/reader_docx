@@ -1,3 +1,5 @@
+use crate::traits::Scale;
+
 use super::{
     DocumentGrid, DocxDocument, DocxNode, FormProt, NumType, PageMargin, PageSize, PageType,
     TextDirection,
@@ -62,5 +64,68 @@ impl DocxDocument {
 impl DocxNode {
     pub fn is_sector_of_properties(&self) -> bool {
         matches!(self, Self::SectrOfProperties { .. })
+    }
+}
+
+impl Default for SectrOfProperties {
+    fn default() -> Self {
+        Self {
+            page_type: PageType::NextPage,
+            page_size: PageSize {
+                width: 1000.,
+                height: 1000.,
+            },
+            page_margin: PageMargin {
+                footer: 100.,
+                gutter: 100.,
+                header: 100.,
+                bottom: 100.,
+                left: 100.,
+                right: 100.,
+                top: 100.,
+            },
+            page_num_type: NumType::Decimal,
+            form_prot: FormProt { val: true },
+            text_direction: TextDirection::LeftToRightTopToBottom,
+            document_grid: DocumentGrid {
+                char_space: 10,
+                line_pitch: 20,
+                grid_type: super::GridType::Default,
+            },
+        }
+    }
+}
+
+impl Scale for SectrOfProperties {
+    fn scale(self, v: f32) -> Self {
+        Self {
+            page_size: self.page_size.scale(v),
+            page_margin: self.page_margin.scale(v),
+            ..self
+        }
+    }
+}
+
+
+impl Scale for PageSize {
+    fn scale(self, v: f32) -> Self {
+        Self {
+            width: self.width * v,
+            height: self.height * v,
+        }
+    }
+}
+
+impl Scale for PageMargin {
+    fn scale(self, v: f32) -> Self {
+        Self {
+            footer: self.footer * v,
+            gutter: self.gutter * v,
+            header: self.header * v,
+            bottom: self.bottom * v,
+            left: self.left * v,
+            right: self.right * v,
+            top: self.top * v,
+        }
     }
 }

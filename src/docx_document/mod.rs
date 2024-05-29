@@ -181,8 +181,8 @@ impl FromStr for PageType {
 
 #[derive(Debug, Clone)]
 pub struct TextNode {
-    properties: TextProperties,
-    content: String,
+    pub properties: TextProperties,
+    pub content: String,
 }
 
 #[derive(Default, Debug, Clone)]

@@ -2,7 +2,7 @@ use super::{
     ContentTree, DocxDocument, DocxNode, FontTable, ParagraphProperties, TextNode, TextProperties,
 };
 
-const PRE: &'static str = "  ";
+const PRE: &str = "  ";
 
 impl std::fmt::Display for DocxDocument {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -139,7 +139,12 @@ impl std::fmt::Display for ParagraphProperties {
         display_property("justify", format!("{:?}", self.justify), 2, f)?;
 
         writeln!(f, "*")?;
-        display_property("text properties", format!("{:?}", self.text_properties), 2, f)?;
+        display_property(
+            "text properties",
+            format!("{:?}", self.text_properties),
+            2,
+            f,
+        )?;
 
         writeln!(f, ":( end ):")
     }

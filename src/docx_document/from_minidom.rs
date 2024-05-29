@@ -22,8 +22,11 @@ impl<'a> TryFrom<(&'a minidom::Element, &'a minidom::Element)> for DocxDocument 
             ));
         }
 
-        let mut document = DocxDocument::default();
-        document.fonts = FontTable::try_from(fonts)?;
+        let mut document = DocxDocument {
+            fonts: FontTable::try_from(fonts)?,
+            ..Default::default()
+        };
+
         let body = root
             .get_child_ans("body")
             .context("Document must containt body.")?;

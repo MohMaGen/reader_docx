@@ -27,6 +27,7 @@ impl super::FontTable {
             fonts.push(FontProperties {
                 name: font_name,
                 variants: variants.collect(),
+                ..Default::default()
             });
             fonts.len() - 1
         }
@@ -44,7 +45,7 @@ impl super::FontTable {
 fn grapheme_to_i32(grapheme: &str) -> i32 {
     let mut zero = [0u8; 4];
     for (idx, byte) in grapheme.bytes().take(4).enumerate() {
-        zero[3-idx] = byte;
+        zero[3 - idx] = byte;
     }
 
     i32::from_be_bytes(zero)
