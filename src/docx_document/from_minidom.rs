@@ -8,6 +8,8 @@ use crate::docx_document::{
     ParagraphProperties, SpacingProperties, TextDirection,
 };
 
+use std::io::Write;
+
 use super::{ColorValue, DocxDocument, FontTable, TextSize, TextWidth};
 
 impl<'a> TryFrom<(&'a minidom::Element, &'a minidom::Element)> for DocxDocument {
@@ -30,6 +32,9 @@ impl<'a> TryFrom<(&'a minidom::Element, &'a minidom::Element)> for DocxDocument 
         let body = root
             .get_child_ans("body")
             .context("Document must containt body.")?;
+
+        let mut file = std::fs::File::create("./tmp.out")?;
+        root.write_to(&mut file)?;
 
         let default_chars = String::from("ABOBA");
 
@@ -99,43 +104,72 @@ fn parse_sectr_properties(
 ) -> Result<super::DocxNode, <DocxDocument as TryFrom<(&Element, &Element)>>::Error> {
     use super::DocxNode::SectrOfProperties;
     Ok(SectrOfProperties {
-        page_type: root_element
-            .get_childs_attr("type", "w:val")
-            .context(format!("can't parse page type: `{:?}`", root_element))?,
+        page_type: page_type(root_element),
 
-        page_size: PageSize {
-            width: get_float(root_element, "pgSz", "w:w").context("widht")?,
-            height: get_float(root_element, "pgSz", "w:h").context("height")?,
-        },
-        page_margin: PageMargin {
-            footer: get_float(root_element, "pgMar", "w:footer").context("footer")?,
-            gutter: get_float(root_element, "pgMar", "w:gutter").context("gutter")?,
-            header: get_float(root_element, "pgMar", "w:header").context("header")?,
-            bottom: get_float(root_element, "pgMar", "w:bottom").context("bottom")?,
-            left: get_float(root_element, "pgMar", "w:left").context("left")?,
-            right: get_float(root_element, "pgMar", "w:right").context("right")?,
-            top: get_float(root_element, "pgMar", "w:top").context("top")?,
-        },
-        page_num_type: root_element
-            .get_childs_attr::<NumType>("pgNumType", "w:fmt")
-            .context("can't get page num type")?,
-        form_prot: root_element
-            .get_childs_attr::<FormProt>("formProt", "w:val")
-            .context("can't get page form prot")?,
-        text_direction: root_element
-            .get_childs_attr::<TextDirection>("textDirection", "w:val")
-            .context("can't get text direction")?,
-        document_grid: DocumentGrid {
-            char_space: root_element
-                .get_childs_attr::<u64>("docGrid", "w:charSpace")
-                .context("can't get text direction")?,
-            line_pitch: root_element
-                .get_childs_attr::<u64>("docGrid", "w:linePitch")
-                .context("can't get text direction")?,
-            grid_type: root_element
-                .get_childs_attr::<GridType>("docGrid", "w:type")
-                .context("can't get text direction")?,
-        },
+        page_size: parse_page_size(root_element).context("Must have page size.")?,
+        page_margin: parse_page_margin(root_element).context("Must have page margins.")?,
+        page_num_type: parse_page_num_type(root_element),
+        form_prot: parse_form_prot(root_element),
+        text_direction: parse_text_direction(root_element),
+        document_grid: parse_document_grid(root_element),
+    })
+}
+
+fn parse_document_grid(root_element: &Element) -> Option<DocumentGrid> {
+    Some(DocumentGrid {
+        char_space: root_element.get_childs_attr::<u64>("docGrid", "w:charSpace")?,
+        line_pitch: root_element.get_childs_attr::<u64>("docGrid", "w:linePitch")?,
+        grid_type: root_element.get_childs_attr::<GridType>("docGrid", "w:type")?,
+    })
+}
+
+fn parse_text_direction(root_element: &Element) -> TextDirection {
+    root_element
+        .get_childs_attr::<TextDirection>("textDirection", "w:val")
+        .context("can't get text direction")
+        .ok()
+        .unwrap_or_default()
+}
+
+fn parse_form_prot(root_element: &Element) -> Option<FormProt> {
+    root_element
+        .get_childs_attr::<FormProt>("formProt", "w:val")
+        .context("can't get page form prot")
+        .ok()
+}
+
+fn parse_page_num_type(root_element: &Element) -> Option<NumType> {
+    root_element
+        .get_childs_attr::<NumType>("pgNumType", "w:fmt")
+        .context("can't get page num type")
+        .ok()
+}
+
+fn parse_page_margin(
+    root_element: &Element,
+) -> Result<PageMargin, <DocxDocument as TryFrom<(&Element, &Element)>>::Error> {
+    Ok(PageMargin {
+        footer: get_float(root_element, "pgMar", "w:footer").context("footer")?,
+        gutter: get_float(root_element, "pgMar", "w:gutter").context("gutter")?,
+        header: get_float(root_element, "pgMar", "w:header").context("header")?,
+        bottom: get_float(root_element, "pgMar", "w:bottom").context("bottom")?,
+        left: get_float(root_element, "pgMar", "w:left").context("left")?,
+        right: get_float(root_element, "pgMar", "w:right").context("right")?,
+        top: get_float(root_element, "pgMar", "w:top").context("top")?,
+    })
+}
+
+fn page_type(root_element: &Element) -> Option<super::PageType> {
+    root_element
+        .get_childs_attr("type", "w:val")
+        .context(format!("can't parse page type: `{:?}`", root_element))
+        .ok()
+}
+
+fn parse_page_size(root_element: &Element) -> Option<PageSize> {
+    Some(PageSize {
+        width: get_float(root_element, "pgSz", "w:w").ok()?,
+        height: get_float(root_element, "pgSz", "w:h").ok()?,
     })
 }
 

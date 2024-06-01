@@ -1,7 +1,7 @@
 use std::{collections::HashSet, str::FromStr};
 
 use minidom::Element;
-use raylib::{prelude::Color, text::Font};
+use sdl2::pixels::Color;
 
 pub mod add_font;
 pub mod content_tree;
@@ -34,15 +34,8 @@ pub struct FontProperties {
 pub struct FontVariant {
     pub font_size: usize,
     pub chars: Vec<i32>,
-    pub state: FontState,
 }
 
-#[derive(Default, Debug)]
-pub enum FontState {
-    #[default]
-    NotLoaded,
-    Loaded(Font),
-}
 
 #[derive(Default, Debug, Clone)]
 pub struct ContentTree {
@@ -57,13 +50,13 @@ pub enum DocxNode {
         texts: Vec<TextNode>,
     },
     SectrOfProperties {
-        page_type: PageType,
+        page_type: Option<PageType>,
         page_size: PageSize,
         page_margin: PageMargin,
-        page_num_type: NumType,
-        form_prot: FormProt,
+        page_num_type: Option<NumType>,
+        form_prot: Option<FormProt>,
         text_direction: TextDirection,
-        document_grid: DocumentGrid,
+        document_grid: Option<DocumentGrid>,
     },
     Todo(Element),
 }
@@ -98,8 +91,9 @@ impl FromStr for GridType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum TextDirection {
+    #[default]
     LeftToRightTopToBottom,
     LeftToRightBottomToTop,
     RightToLeftTopToBottom,
@@ -221,6 +215,7 @@ pub enum Justification {
     #[default]
     Start,
     End,
+    Center,
     Width,
 }
 
@@ -232,6 +227,7 @@ impl FromStr for Justification {
             "start" => Ok(Justification::Start),
             "end" => Ok(Justification::End),
             "width" => Ok(Justification::Width),
+            "center" => Ok(Justification::Center),
             _ => Err(anyhow::Error::msg("invalid justification")),
         }
     }

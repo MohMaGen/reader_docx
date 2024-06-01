@@ -1,236 +1,276 @@
-#![feature(more_qualified_paths)]
+extern crate sdl2;
 
-use std::{
-    fmt::{Debug, Display},
-    io::Read,
-    path::PathBuf,
-    sync::Arc,
-};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::rc::Rc;
+use std::sync::{Arc, LockResult, Mutex};
 
+use anyhow::Context;
+use colored::Colorize;
+use colorscheme::ColorScheme;
 use docx_document::DocxDocument;
-use docx_editor::DocxEditor;
-use iced::{
-    executor,
-    keyboard::{self, key::Named},
-    widget::{self, row},
-    Application, Command, Settings, Theme,
-};
-use minidom::Element;
+use sdl2::pixels::Color;
+use sdl2::video::Window;
 
+pub mod colorscheme;
+pub mod commands_apply_thread;
 pub mod docx_document;
-pub mod docx_editor;
+pub mod draw;
+pub mod main_loop;
+pub mod math;
+pub mod text;
 pub mod traits;
+pub mod update_events;
 
-fn main() -> iced::Result {
-    App::run(Settings::default())
-}
+pub type Fonts<'ttf, 'wrops> = HashMap<u16, Rc<sdl2::ttf::Font<'ttf, 'wrops>>>;
+pub type Command = Pin<Box<dyn Future<Output = anyhow::Result<Message>> + Send>>;
 
-#[derive(Default)]
-pub struct App {
-    pub command_line: CommandLine,
-    pub document: Option<Arc<Document>>,
-    pub ui_mode: UiMode,
-}
-
-#[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum Message {
-    EnterCommand(CommandInputAction),
-    DoCommand(String),
-    ToMode(UiMode),
-    OpenDocx(Result<Arc<Document>, ReaderDocxError>),
-    PickDocx(Option<PathBuf>),
+    LoadDocx(Arc<anyhow::Result<Document>>),
+    Aboba,
 }
 
-#[derive(Clone, Debug)]
-pub enum CommandInputAction {
-    Enter,
-    Input(String),
-    Backspace,
+#[derive(Clone)]
+pub struct State {
+    pub should_exit: bool,
+    pub colorscheme: colorscheme::ColorScheme,
+    pub console: Console,
+    pub mode: UiMode,
+    pub cursor: Cursor,
+    pub scroll: f32,
+    pub scale: f32,
+    pub document: Option<Arc<Box<Document>>>,
 }
 
-#[derive(Debug, Clone)]
-pub enum ReaderDocxError {
-    ReadDocx(String),
-}
-
-impl Application for App {
-    type Executor = executor::Default;
-
-    type Message = Message;
-
-    type Theme = Theme;
-
-    type Flags = ();
-
-    fn new(_flags: Self::Flags) -> (Self, iced::Command<Self::Message>) {
-        (Self::default(), Command::none())
-    }
-
-    fn title(&self) -> String {
-        if let Some(document) = &self.document {
-            format!("reader docx {:?}", document.path)
-        } else {
-            "reader docx".into()
-        }
-    }
-
-    fn update(&mut self, message: Self::Message) -> iced::Command<Self::Message> {
-        match message {
-            Message::EnterCommand(action) => self.update_command_line_action(action),
-            Message::ToMode(mode) => self.update_mode(mode),
-            Message::DoCommand(command) => match &command.trim()[1..] {
-                "view" => Command::perform(async move { UiMode::View }, Message::ToMode),
-                "open" => Command::perform(pick_docx(), Message::PickDocx),
-                _ => Command::none(),
-            },
-            Message::PickDocx(Some(file)) => {
-                Command::perform(open_and_parse(file), Message::OpenDocx)
-            }
-            Message::OpenDocx(Ok(document)) => {
-                println!("{}", document.document);
-                self.document = Some(document);
-                Command::none()
-            }
-            Message::OpenDocx(Err(ReaderDocxError::ReadDocx(err))) => {
-                eprintln!("{}", err);
-                Command::none()
-            }
-            _ => Command::none(),
-        }
-    }
-
-    fn view(&self) -> iced::Element<'_, Self::Message, Self::Theme, iced::Renderer> {
-        let command_line = row![
-            widget::container(widget::text(format!("{}", self.ui_mode)))
-                .padding(5)
-                .style(UiModeContainerStyle(self.ui_mode)),
-            widget::container(widget::text(&self.command_line.content)).padding(5)
-        ]
-        .padding(5);
-        
-        if let Some(document) = &self.document {
-            widget::column![DocxEditor::new(&document.document, self.ui_mode), command_line].into()
-        } else {
-            widget::column![widget::vertical_space(), command_line].into()
-        }
-
-    }
-
-    fn theme(&self) -> Self::Theme {
-        Self::Theme::default()
-    }
-
-    fn style(&self) -> <Self::Theme as iced::application::StyleSheet>::Style {
-        <Self::Theme as iced::application::StyleSheet>::Style::default()
-    }
-
-    fn subscription(&self) -> iced::Subscription<Self::Message> {
-        match self.ui_mode {
-            UiMode::CommandInput => command_input_mode_keys(),
-            UiMode::Command => command_mode_keys(),
-            UiMode::View | UiMode::Edit => keyboard::on_key_press(|key, _modifiers| match key {
-                keyboard::Key::Named(Named::Escape) => Some(Message::ToMode(UiMode::Command)),
-                _ => None,
-            }),
-        }
-    }
-
-    fn scale_factor(&self) -> f64 {
-        1.0
-    }
-}
-
-fn command_mode_keys() -> iced::Subscription<Message> {
-    keyboard::on_key_press(|key, modifiers| match key {
-        keyboard::Key::Character(s) if s == ";" && modifiers.shift() => {
-            Some(Message::ToMode(UiMode::CommandInput))
-        }
-        keyboard::Key::Character(s) if s == "i" || s == "a" || s == "s" => {
-            Some(Message::ToMode(UiMode::Edit))
-        }
-        _ => None,
-    })
-}
-
-fn command_input_mode_keys() -> iced::Subscription<Message> {
-    keyboard::on_key_press(|key, modifiers| match key {
-        keyboard::Key::Named(Named::Escape) => Some(Message::ToMode(UiMode::Command)),
-        keyboard::Key::Named(Named::Enter) => {
-            Some(Message::EnterCommand(CommandInputAction::Enter))
-        }
-        keyboard::Key::Named(Named::Backspace) => {
-            Some(Message::EnterCommand(CommandInputAction::Backspace))
-        }
-        keyboard::Key::Named(Named::Space) => {
-            Some(Message::EnterCommand(CommandInputAction::Input(" ".into())))
-        }
-        keyboard::Key::Character(s) => Some(Message::EnterCommand(CommandInputAction::Input(
-            if modifiers.shift() {
-                s.to_string().to_uppercase()
-            } else {
-                s.to_string().to_lowercase()
-            },
-        ))),
-        _ => None,
-    })
-}
-
-impl App {
-    fn update_command_line_action(&mut self, action: CommandInputAction) -> Command<Message> {
-        match action {
-            CommandInputAction::Enter => {
-                let content = self.command_line.content.clone();
-                self.command_line.content = String::new();
-
-                Command::perform(async move { content }, Message::DoCommand)
-            }
-            CommandInputAction::Input(s) => {
-                self.command_line.content.push_str(&s);
-                Command::none()
-            }
-            CommandInputAction::Backspace => {
-                self.command_line.content.pop();
-                Command::none()
-            }
-        }
-    }
-
-    fn update_mode(&mut self, mode: UiMode) -> Command<Message> {
-        if mode == UiMode::CommandInput {
-            self.command_line.content = ":".into();
-        }
-        self.ui_mode = mode;
-        Command::none()
-    }
-}
-
-#[derive(Default)]
-pub struct CommandLine {
-    pub content: String,
-    pub histroy: Vec<String>,
-}
-
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct Document {
-    pub document: DocxDocument,
+    pub docx_document: Arc<Box<DocxDocument>>,
     pub path: PathBuf,
 }
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum UiMode {
-    Command,
-    CommandInput,
     #[default]
     View,
+    Command,
+    CommandInput,
     Edit,
 }
 
-impl From<UiMode> for iced::Color {
-    fn from(value: UiMode) -> Self {
-        match value {
-            UiMode::Command | UiMode::CommandInput => Self::new(0.4, 0.5, 0.8, 1.0),
-            UiMode::View => Self::new(0.8, 0.75, 0.56, 1.0),
-            UiMode::Edit => Self::new(0.4, 0.8, 0.56, 1.0),
+#[derive(Debug, Default, Clone)]
+pub struct Cursor {
+    pub paragraph_id: usize,
+    pub text_id: usize,
+    pub grapheme: usize,
+}
+
+#[derive(Clone)]
+pub struct Console {
+    pub input: String,
+    pub font: FontHandle,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FontHandle {
+    name: String,
+    size: u16,
+    path: PathBuf,
+}
+
+pub const ML: f32 = 5.;
+
+pub fn main() -> anyhow::Result<()> {
+    let ttf_context = sdl2::ttf::init().context("Failed to initialize ttf context")?;
+    let mut fonts = HashMap::<u16, _>::new();
+
+    let font_src = "./fonts/small_pixel-7.ttf";
+    for size_pt in 1..150 {
+        fonts.insert(
+            size_pt,
+            Rc::new(
+                ttf_context
+                                         /*        conver pt to px      */
+                    .load_font(font_src, (size_pt as f32 * 96. / 76. * ML) as u16)
+                    .as_anyhow()?,
+            ),
+        );
+    }
+
+    let sdl_context = sdl2::init().unwrap();
+    let video_subsystem = sdl_context.video().unwrap();
+
+    let window = init_video_subsystem(video_subsystem)?;
+    let mut canvas = window.into_canvas().build().unwrap();
+
+    let state = Arc::new(Mutex::new(State::init()));
+    let commands = Arc::new(Mutex::new(Vec::new()));
+
+    let mut event_pump = sdl_context.event_pump().as_anyhow()?;
+
+    let command_apply_thread =
+        commands_apply_thread::spawn(Arc::clone(&state), Arc::clone(&commands));
+
+    canvas.set_scale(1. / ML, 1. / ML).as_anyhow()?;
+
+    loop {
+        match main_loop::main_loop(
+            Arc::clone(&state),
+            &mut event_pump,
+            Arc::clone(&commands),
+            &mut canvas,
+            &fonts,
+        ) {
+            Ok(true) => break,
+            Err(err) => display_error(&err),
+            _ => {}
+        }
+    }
+
+    let _ = command_apply_thread.join();
+
+    Ok(())
+}
+
+fn init_video_subsystem(video_subsystem: sdl2::VideoSubsystem) -> anyhow::Result<Window> {
+    video_subsystem
+        .window("rust-sdl2 demo", 800, 600)
+        .position_centered()
+        .resizable()
+        .build()
+        .context("Failed to init video subsystem")
+}
+
+impl State {
+    pub fn init() -> Self {
+        Self {
+            should_exit: false,
+            colorscheme: Default::default(),
+            console: Default::default(),
+            mode: Default::default(),
+            cursor: Default::default(),
+            document: None,
+            scale: 0.5,
+            scroll: 1.,
+        }
+    }
+}
+
+impl Default for Console {
+    fn default() -> Self {
+        Self {
+            input: String::new(),
+            font: FontHandle {
+                name: "console font".into(),
+                size: 10,
+                path: PathBuf::from("./fonts/VT323-Regular.ttf"),
+            },
+        }
+    }
+}
+
+pub trait AsAnyhow {
+    type Item;
+    fn as_anyhow(self) -> anyhow::Result<Self::Item>;
+}
+
+impl<T> AsAnyhow for Result<T, String> {
+    type Item = T;
+
+    fn as_anyhow(self) -> anyhow::Result<Self::Item> {
+        self.map_err(anyhow::Error::msg)
+    }
+}
+
+impl<T> AsAnyhow for LockResult<T> {
+    type Item = T;
+
+    fn as_anyhow(self) -> anyhow::Result<Self::Item> {
+        self.map_err(|err| anyhow::Error::msg(err.to_string()))
+    }
+}
+
+pub fn display_error(err: &anyhow::Error) {
+    eprintln!(
+        "{}: `{}`\n\n{:?}\n\n",
+        "[ error ]".on_red().bold(),
+        err.to_string().red().bold(),
+        err
+    );
+}
+
+impl State {
+    pub fn console_bg(&self) -> Color {
+        self.colorscheme.console_bg_color
+    }
+
+    pub fn console_border(&self) -> Color {
+        self.colorscheme.console_border_color
+    }
+
+    pub fn console_fg(&self) -> Color {
+        self.colorscheme.console_fg_color
+    }
+
+    pub fn page_color(&self) -> Color {
+        self.colorscheme.page_color
+    }
+
+    pub fn page_bg_color(&self) -> Color {
+        self.colorscheme.page_bg_color
+    }
+
+    pub fn page_border_color(&self) -> Color {
+        self.colorscheme.page_border_color
+    }
+}
+
+pub trait StateMutex {
+    fn should_exit(&self) -> anyhow::Result<bool>;
+
+    fn console_bg(&self) -> anyhow::Result<Color>;
+
+    fn console_border(&self) -> anyhow::Result<Color>;
+
+    fn console_fg(&self) -> anyhow::Result<Color>;
+
+    fn get_copy(&self) -> anyhow::Result<Box<State>>;
+}
+
+impl StateMutex for Arc<Mutex<State>> {
+    fn should_exit(&self) -> anyhow::Result<bool> {
+        let state = self.lock().as_anyhow()?;
+        Ok(state.should_exit.clone())
+    }
+
+    fn console_bg(&self) -> anyhow::Result<Color> {
+        let state = self.lock().as_anyhow()?;
+        Ok(state.colorscheme.console_bg_color.clone())
+    }
+
+    fn console_border(&self) -> anyhow::Result<Color> {
+        let state = self.lock().as_anyhow()?;
+        Ok(state.colorscheme.console_border_color.clone())
+    }
+
+    fn console_fg(&self) -> anyhow::Result<Color> {
+        let state = self.lock().as_anyhow()?;
+        Ok(state.colorscheme.console_fg_color.clone())
+    }
+
+    fn get_copy(&self) -> Result<Box<State>, anyhow::Error> {
+        let state = self.lock().as_anyhow()?;
+        Ok(Box::new(state.clone()))
+    }
+}
+
+impl UiMode {
+    pub fn get_bg_color(&self, scheme: ColorScheme) -> Color {
+        match self {
+            UiMode::View => scheme.view_mode_color,
+            UiMode::Command | UiMode::CommandInput => scheme.command_mode_color,
+            UiMode::Edit => scheme.edit_mode_color,
         }
     }
 }
@@ -238,91 +278,9 @@ impl From<UiMode> for iced::Color {
 impl std::fmt::Display for UiMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UiMode::Command | UiMode::CommandInput => write![f, "command"],
-            UiMode::View => write![f, "view"],
-            UiMode::Edit => write![f, "edit"],
-        }
-    }
-}
-
-pub struct UiModeContainerStyle(pub UiMode);
-
-impl From<UiModeContainerStyle> for iced::theme::Container {
-    fn from(value: UiModeContainerStyle) -> Self {
-        Self::Custom(Box::new(value))
-    }
-}
-
-impl widget::container::StyleSheet for UiModeContainerStyle {
-    type Style = iced::Theme;
-
-    fn appearance(&self, style: &Self::Style) -> widget::container::Appearance {
-        let palete = style.palette();
-
-        widget::container::Appearance {
-            background: Some(iced::Background::Color(self.0.clone().into())),
-            text_color: Some(palete.text),
-            ..Default::default()
-        }
-    }
-}
-
-async fn pick_docx() -> Option<PathBuf> {
-    rfd::AsyncFileDialog::new()
-        .set_title("Open a docx file...")
-        .pick_file()
-        .await
-        .map(|v| v.path().to_path_buf())
-}
-
-async fn open_and_parse(file: PathBuf) -> Result<Arc<Document>, ReaderDocxError> {
-    let archive = tokio::fs::read(file.clone())
-        .await
-        .map_err(|err| ReaderDocxError::ReadDocx(err.to_string()))?;
-
-    let document = get_element(&archive, "word/document.xml")?;
-    let fonts = get_element(&archive, "word/fontTable.xml")?;
-
-    Ok(Arc::new(Document {
-        document: (&document, &fonts)
-            .try_into()
-            .read_docx_err("Failed to create docx document")?,
-        path: file,
-    }))
-}
-
-fn get_element(archive: &Vec<u8>, file: &str) -> Result<Element, ReaderDocxError> {
-    let archive = std::io::Cursor::new(archive);
-
-    let mut document = String::new();
-    zip::ZipArchive::new(archive)
-        .read_docx_err("Failed to parse archive")?
-        .by_name(file)
-        .read_docx_err(format!("Failed to get {} file", file))?
-        .read_to_string(&mut document)
-        .read_docx_err(format!("Failed to read to string."))?;
-
-    document
-        .parse()
-        .read_docx_err("Failed to parse document.xml file")
-}
-
-pub trait ToReaderDocxError {
-    type Item;
-
-    fn read_docx_err(self, context: impl Display) -> Result<Self::Item, ReaderDocxError>;
-}
-
-impl<T, E> ToReaderDocxError for Result<T, E>
-where
-    E: Display,
-{
-    type Item = T;
-
-    fn read_docx_err(self, context: impl Display) -> Result<T, ReaderDocxError> {
-        match self {
-            Ok(ok) => Ok(ok),
-            Err(err) => Err(ReaderDocxError::ReadDocx(format!("{}: `{}`", context, err))),
+            UiMode::View => write!(f, "view"),
+            UiMode::Command | UiMode::CommandInput => write!(f, "command"),
+            UiMode::Edit => write!(f, "edit"),
         }
     }
 }

@@ -1,4 +1,3 @@
-use crate::traits::Scale;
 
 use super::{
     DocumentGrid, DocxDocument, DocxNode, FormProt, NumType, PageMargin, PageSize, PageType,
@@ -7,13 +6,13 @@ use super::{
 
 #[derive(Clone)]
 pub struct SectrOfProperties {
-    pub page_type: PageType,
+    pub page_type: Option<PageType>,
     pub page_size: PageSize,
     pub page_margin: PageMargin,
-    pub page_num_type: NumType,
-    pub form_prot: FormProt,
+    pub page_num_type: Option<NumType>,
+    pub form_prot: Option<FormProt>,
     pub text_direction: TextDirection,
-    pub document_grid: DocumentGrid,
+    pub document_grid: Option<DocumentGrid>,
 }
 
 impl SectrOfProperties {
@@ -70,7 +69,7 @@ impl DocxNode {
 impl Default for SectrOfProperties {
     fn default() -> Self {
         Self {
-            page_type: PageType::NextPage,
+            page_type: Some(PageType::NextPage),
             page_size: PageSize {
                 width: 1000.,
                 height: 1000.,
@@ -84,19 +83,19 @@ impl Default for SectrOfProperties {
                 right: 100.,
                 top: 100.,
             },
-            page_num_type: NumType::Decimal,
-            form_prot: FormProt { val: true },
+            page_num_type: Some(NumType::Decimal),
+            form_prot: Some(FormProt { val: true }),
             text_direction: TextDirection::LeftToRightTopToBottom,
-            document_grid: DocumentGrid {
+            document_grid: Some(DocumentGrid {
                 char_space: 10,
                 line_pitch: 20,
                 grid_type: super::GridType::Default,
-            },
+            }),
         }
     }
 }
 
-impl Scale for SectrOfProperties {
+impl crate::traits::Scale for SectrOfProperties {
     fn scale(self, v: f32) -> Self {
         Self {
             page_size: self.page_size.scale(v),
@@ -107,7 +106,7 @@ impl Scale for SectrOfProperties {
 }
 
 
-impl Scale for PageSize {
+impl crate::traits::Scale for PageSize {
     fn scale(self, v: f32) -> Self {
         Self {
             width: self.width * v,
@@ -116,7 +115,7 @@ impl Scale for PageSize {
     }
 }
 
-impl Scale for PageMargin {
+impl crate::traits::Scale for PageMargin {
     fn scale(self, v: f32) -> Self {
         Self {
             footer: self.footer * v,
