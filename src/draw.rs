@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use wgpu::RenderPass;
-
-use crate::{buffers::{BufferName, UiBuffers}, docx_document, vertex::Vertex2d, App};
+use crate::{docx_document::Color, App};
 
 pub struct DrawState<'window> {
     pub window: Arc<winit::window::Window>,
@@ -11,19 +9,30 @@ pub struct DrawState<'window> {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub fill_pipeline: FillPipeline,
-    pub ui_buffers: UiBuffers,
 }
 
 pub struct FillPipeline {
     pub pipeline: wgpu::RenderPipeline,
     pub vertex_buffer: wgpu::Buffer,
+    pub uniform_buffer: wgpu::Buffer,
+    pub bind_group: wgpu::BindGroup,
+    pub bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl App<'_> {
-    pub fn draw(&self) {
+    pub fn draw(&mut self) {
         let Some(draw_state) = self.draw_state.as_ref() else {
             return;
         };
+
+        let Some(ui_primitives) = self.ui_primitives.as_mut() else {
+            return;
+        };
+
+        let (w_width, w_height) = (
+            draw_state.config.width as f32,
+            draw_state.config.height as f32,
+        );
 
         let frame = draw_state
             .surface
@@ -47,58 +56,20 @@ impl App<'_> {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            rpass.push_debug_group("Setup pipeline");
-            rpass.set_pipeline(&draw_state.fill_pipeline.pipeline);
-            rpass.set_vertex_buffer(0, draw_state.fill_pipeline.vertex_buffer.slice(..));
-            rpass.pop_debug_group();
-            rpass.push_debug_group("Draw");
-            rpass.draw(0..6, 0..1);
 
-            rpass.draw_rect(&draw_state, BufferName::ConsoleBg, (-0.1, 0.1, 0.1, -0.1), docx_document::Color::rgb(0.5, 0.5, 0.5));
+            draw_state.update_rect(
+                (0., w_height - 60., w_width, w_height),
+                Color::rgb(0.5, 0.5, 0.5),
+                &mut ui_primitives.console_rect,
+            );
+            draw_state.draw_primitive(&mut rpass, &ui_primitives.console_rect)
         }
 
         draw_state.queue.submit(Some(encoder.finish()));
         frame.present();
-    }
-}
-
-pub trait BasicDraw<'a> {
-    fn draw_rect<'state: 'a>(
-        &mut self,
-        draw_state: &'state DrawState,
-        buffer_name: BufferName,
-        rect: impl Into<crate::math::Rectangle>,
-        color: crate::docx_document::Color,
-    );
-}
-
-impl<'a> BasicDraw<'a> for RenderPass<'a> {
-    fn draw_rect<'state: 'a>(
-        &mut self,
-        draw_state: &'state DrawState,
-        buffer_name: BufferName,
-        rect: impl Into<crate::math::Rectangle>,
-        color: crate::docx_document::Color,
-    ) {
-        let rect: crate::math::Rectangle = rect.into();
-        let (crate::math::Point { x, y }, crate::math::Size { width, height }) =
-            rect.get_point_and_size();
-
-        draw_state.queue.write_buffer(
-            &draw_state.get_buffer(buffer_name),
-            0,
-            bytemuck::cast_slice(&Vertex2d::rect(x, y, width, height, color)),
-        );
-        self.push_debug_group("Setup draw Rect");
-        self.set_pipeline(&draw_state.fill_pipeline.pipeline);
-        self.set_vertex_buffer(0, draw_state.get_buffer(buffer_name).slice(..));
-        self.pop_debug_group();
-        self.push_debug_group("Draw!!");
-        self.draw(0..6, 0..1);
     }
 }

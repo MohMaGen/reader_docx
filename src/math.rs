@@ -119,8 +119,8 @@ impl Rectangle {
         (
             self.left_top,
             (
-                self.right_bottom.x - self.left_top.x,
-                self.left_top.y - self.right_bottom.y,
+                (self.right_bottom.x - self.left_top.x).abs(),
+                (self.left_top.y - self.right_bottom.y).abs(),
             )
                 .into(),
         )

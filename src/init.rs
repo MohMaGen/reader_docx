@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use crate::{buffers::UiBuffers, vertex::Vertex2d};
+use crate::{uniforms::Uniforms2d, vertex::Vertex2d};
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
@@ -15,6 +15,7 @@ impl App<'_> {
             state: State::init(),
             window: None,
             draw_state: None,
+            ui_primitives: None,
         }
     }
 }
@@ -77,8 +78,6 @@ impl<'window> DrawState<'window> {
 
         surface.configure(&device, &config);
 
-        let ui_buffers = get_ui_buffers(&device);
-
         Self {
             window,
             surface,
@@ -86,7 +85,6 @@ impl<'window> DrawState<'window> {
             device,
             queue,
             fill_pipeline,
-            ui_buffers,
         }
     }
 }
@@ -95,9 +93,23 @@ fn get_fill_pipeline(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration)
     let fill_shader =
         device.create_shader_module(wgpu::include_wgsl!("../shaders/fill_shader.wgsl"));
 
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: None,
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: wgpu::BufferSize::new(64 + 16),
+            },
+            count: None,
+        }],
+    });
+
     let fill_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Fill pipeline Layout"),
-        bind_group_layouts: &[],
+        bind_group_layouts: &[&bind_group_layout],
         push_constant_ranges: &[],
     });
 
@@ -138,6 +150,21 @@ fn get_fill_pipeline(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration)
         multiview: None,
     });
 
+    let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Uniform Buffer"),
+        contents: bytemuck::cast_slice(&[Uniforms2d::default()]),
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    });
+
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &bind_group_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: uniform_buffer.as_entire_binding(),
+        }],
+        label: None,
+    });
+
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Vertex Buffer"),
         contents: bytemuck::cast_slice(Vertex2d::RECT),
@@ -147,20 +174,9 @@ fn get_fill_pipeline(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration)
     FillPipeline {
         pipeline,
         vertex_buffer,
+        bind_group,
+        bind_group_layout,
+        uniform_buffer,
     }
 }
 
-
-pub fn get_ui_buffers(device: &wgpu::Device) -> UiBuffers {
-    UiBuffers {
-        console_bg: get_rect_buffer(device, "Vertex Buffer"),
-    }
-}
-
-fn get_rect_buffer(device: &wgpu::Device, buffer_label: &str) -> wgpu::Buffer {
-    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some(buffer_label),
-        contents: bytemuck::cast_slice(Vertex2d::RECT),
-        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-    })
-}

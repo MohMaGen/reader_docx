@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use draw::DrawState;
+use ui::UiState;
 use winit::{
     application::ApplicationHandler,
     event_loop::{ControlFlow, EventLoop},
@@ -10,9 +11,11 @@ pub mod draw;
 pub mod init;
 pub mod traits;
 pub mod math;
-pub mod buffers;
+pub mod uniforms;
 pub mod vertex;
 pub mod docx_document;
+pub mod ui;
+pub mod primitives;
 
 #[derive(Clone)]
 pub struct State {
@@ -23,6 +26,7 @@ pub struct App<'window> {
     pub window: Option<Arc<Window>>,
     pub state: Arc<Mutex<State>>,
     pub draw_state: Option<DrawState<'window>>,
+    pub ui_primitives: Option<UiState>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -44,7 +48,9 @@ impl ApplicationHandler for App<'_> {
         };
         let window = Arc::new(window);
         self.window = Some(Arc::clone(&window));
-        self.draw_state = Some(DrawState::init(Arc::clone(&window)));
+        let draw_state = DrawState::init(Arc::clone(&window));
+        self.ui_primitives = Some(UiState::init(&draw_state));
+        self.draw_state = Some(draw_state);
     }
 
     fn window_event(
