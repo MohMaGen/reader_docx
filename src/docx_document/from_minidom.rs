@@ -10,7 +10,7 @@ use crate::docx_document::{
 
 use std::io::Write;
 
-use super::{ColorValue, DocxDocument, FontTable, TextSize, TextWidth};
+use super::{Color, DocxDocument, FontTable, TextSize, TextWidth};
 
 impl<'a> TryFrom<(&'a minidom::Element, &'a minidom::Element)> for DocxDocument {
     type Error = anyhow::Error;
@@ -241,7 +241,7 @@ fn parse_text_properties(
         document.push_to_default_font(content.clone())
     };
 
-    let color = rpr.get_childs_attr::<ColorValue>("color", "w:val");
+    let color = rpr.get_childs_attr::<Color>("color", "w:val");
 
     let width = rpr
         .has_child_ans("b")

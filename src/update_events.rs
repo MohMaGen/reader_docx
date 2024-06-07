@@ -5,90 +5,78 @@ use std::{
 
 use anyhow::Context;
 use minidom::Element;
-use sdl2::{
-    event::Event,
-    keyboard::{Keycode, Mod},
-    EventPump,
-};
+use winit::event::WindowEvent;
 
 use crate::{AsAnyhow, Command, Document, Message, State, UiMode};
 
 pub fn update_events<'a>(
     state: Arc<Mutex<State>>,
-    event_pump: &mut EventPump,
-) -> anyhow::Result<Vec<Command>> {
+    event: WindowEvent,
+) -> anyhow::Result<Option<Command>> {
     let mut state = match state.lock().as_anyhow() {
         Ok(state) => state,
         Err(err) => return Err(err),
     };
 
-    Ok(event_pump
-        .poll_iter()
-        .filter_map(|event| {
-            match event {
-                Event::Quit { .. } => state.should_exit = true,
-                Event::KeyDown {
-                    keycode, keymod, ..
-                } => match state.mode {
-                    UiMode::View => match keycode {
-                        Some(Keycode::Escape) => state.mode = UiMode::Command,
-                        Some(Keycode::J) => {
-                            state.scroll -= if is_shift(keymod) { 100. } else { 10. }
-                        }
-                        Some(Keycode::K) => {
-                            state.scroll += if is_shift(keymod) { 100. } else { 10. }
-                        }
-                        Some(Keycode::Minus) => state.scale *= 0.66,
-                        Some(Keycode::Equals) if is_shift(keymod) => {
-                            state.scale *= 1.5;
-                        }
-                        Some(Keycode::Equals) => state.scale = 1.,
-                        _ => {}
-                    },
-                    UiMode::Command => {}
-                    UiMode::CommandInput => match keycode {
-                        Some(Keycode::Escape) => {
-                            state.mode = UiMode::Command;
-                            state.console.input = "".into();
-                        }
-                        Some(Keycode::Return) => {
-                            let console_input = state.console.input.clone();
-                            state.console.input = "".into();
-                            state.mode = UiMode::Command;
-                            return process_command(&mut state, console_input.as_str());
-                        }
-                        Some(Keycode::Backspace) => {
-                            if state.console.input.len() > 1 {
-                                state.console.input = (&state.console.input.as_str()
-                                    [..state.console.input.len() - 1])
-                                    .to_string();
-                            }
-                        }
-                        _ => {}
-                    },
-                    UiMode::Edit => match keycode {
-                        Some(Keycode::Escape) => state.mode = UiMode::Command,
-                        _ => {}
-                    },
+    Ok({
+        match event {
+            WindowEvent::Quit { .. } => state.should_exit = true,
+            Event::KeyDown {
+                keycode, keymod, ..
+            } => match state.mode {
+                UiMode::View => match keycode {
+                    Some(Keycode::Escape) => state.mode = UiMode::Command,
+                    Some(Keycode::J) => state.scroll -= if is_shift(keymod) { 100. } else { 10. },
+                    Some(Keycode::K) => state.scroll += if is_shift(keymod) { 100. } else { 10. },
+                    Some(Keycode::Minus) => state.scale *= 0.66,
+                    Some(Keycode::Equals) if is_shift(keymod) => {
+                        state.scale *= 1.5;
+                    }
+                    Some(Keycode::Equals) => state.scale = 1.,
+                    _ => {}
                 },
-                Event::TextInput { text, .. } => match state.mode {
-                    UiMode::CommandInput => state.console.input.push_str(text.as_str()),
-                    UiMode::View => {}
-                    UiMode::Command => match text.as_str() {
-                        ":" => {
-                            state.mode = UiMode::CommandInput;
-                            state.console.input = ":".into();
+                UiMode::Command => {}
+                UiMode::CommandInput => match keycode {
+                    Some(Keycode::Escape) => {
+                        state.mode = UiMode::Command;
+                        state.console.input = "".into();
+                    }
+                    Some(Keycode::Return) => {
+                        let console_input = state.console.input.clone();
+                        state.console.input = "".into();
+                        state.mode = UiMode::Command;
+                        return process_command(&mut state, console_input.as_str());
+                    }
+                    Some(Keycode::Backspace) => {
+                        if state.console.input.len() > 1 {
+                            state.console.input = (&state.console.input.as_str()
+                                [..state.console.input.len() - 1])
+                                .to_string();
                         }
-                        _ => {}
-                    },
-                    UiMode::Edit => {}
+                    }
+                    _ => {}
                 },
-                _ => {}
-            };
-
-            None
-        })
-        .collect::<Vec<_>>())
+                UiMode::Edit => match keycode {
+                    Some(Keycode::Escape) => state.mode = UiMode::Command,
+                    _ => {}
+                },
+            },
+            Event::TextInput { text, .. } => match state.mode {
+                UiMode::CommandInput => state.console.input.push_str(text.as_str()),
+                UiMode::View => {}
+                UiMode::Command => match text.as_str() {
+                    ":" => {
+                        state.mode = UiMode::CommandInput;
+                        state.console.input = ":".into();
+                    }
+                    _ => {}
+                },
+                UiMode::Edit => {}
+            },
+            _ => {}
+        };
+        None
+    })
 }
 
 fn is_shift(keymod: Mod) -> bool {

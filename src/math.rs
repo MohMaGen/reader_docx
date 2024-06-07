@@ -120,7 +120,7 @@ impl Rectangle {
             self.left_top,
             (
                 self.right_bottom.x - self.left_top.x,
-                self.right_bottom.y - self.left_top.y,
+                self.left_top.y - self.right_bottom.y,
             )
                 .into(),
         )
@@ -207,31 +207,6 @@ impl Rectangle {
     }
 }
 
-pub fn sdl_rect(rectangle: impl Into<Rectangle>) -> sdl2::rect::Rect {
-    let (left_top, size) = rectangle.into().get_point_and_size();
-
-    sdl2::rect::Rect::new(
-        left_top.x as i32,
-        left_top.y as i32,
-        size.width as u32,
-        size.height as u32,
-    )
-}
-
-impl From<sdl2::rect::Point> for Point {
-    fn from(value: sdl2::rect::Point) -> Self {
-        Self {
-            x: value.x() as f32,
-            y: value.y() as f32,
-        }
-    }
-}
-
-impl From<sdl2::rect::Rect> for Rectangle {
-    fn from(value: sdl2::rect::Rect) -> Self {
-        (value.top_left(), value.bottom_right()).into()
-    }
-}
 
 impl From<(u32, u32)> for Size {
     fn from((width, height): (u32, u32)) -> Self {

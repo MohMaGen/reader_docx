@@ -1,7 +1,6 @@
 use std::{collections::HashSet, str::FromStr};
 
 use minidom::Element;
-use sdl2::pixels::Color;
 
 pub mod add_font;
 pub mod content_tree;
@@ -35,7 +34,6 @@ pub struct FontVariant {
     pub font_size: usize,
     pub chars: Vec<i32>,
 }
-
 
 #[derive(Default, Debug, Clone)]
 pub struct ContentTree {
@@ -239,26 +237,41 @@ pub struct TextProperties {
     pub size: Option<TextSize>,
     pub size_cs: Option<TextSize>,
     pub width: TextWidth,
-    pub color: Option<ColorValue>,
+    pub color: Option<Color>,
     pub underline: bool,
     pub italic: bool,
 }
 
 #[derive(Debug, Clone)]
-pub struct ColorValue(pub Color);
+pub struct Color {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
 
-impl FromStr for ColorValue {
+impl FromStr for Color {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let num = u32::from_str_radix(s, 16)?.to_be_bytes();
 
-        Ok(Self(Color {
-            r: num[1],
-            g: num[2],
-            b: num[3],
-            a: 225,
-        }))
+        Ok(Self {
+            r: num[1] as f32 / u8::MAX as f32,
+            g: num[2] as f32 / u8::MAX as f32,
+            b: num[3] as f32 / u8::MAX as f32,
+            a: 1.,
+        })
+    }
+}
+
+impl Color {
+    pub fn as_array(&self) -> [f32; 4] {
+        [self.r, self.g, self.b, self.a]
+    }
+
+    pub fn rgb(r: f32, g: f32, b: f32) -> Self {
+        Self { r, g, b, a: 1.0 }
     }
 }
 
