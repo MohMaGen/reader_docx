@@ -61,12 +61,14 @@ impl App<'_> {
                 occlusion_query_set: None,
             });
 
-            draw_state.update_rect(
-                (0., w_height - 60., w_width, w_height),
-                Color::rgb(0.5, 0.5, 0.5),
+            draw_state.draw_and_update(
+                &mut rpass,
+                (
+                    (0., w_height - 60., w_width, w_height),
+                    Color::rgb(0.5, 0.5, 0.5),
+                ),
                 &mut ui_primitives.console_rect,
             );
-            draw_state.draw_primitive(&mut rpass, &ui_primitives.console_rect)
         }
 
         draw_state.queue.submit(Some(encoder.finish()));

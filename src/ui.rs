@@ -7,7 +7,7 @@ pub struct UiState {
 impl UiState {
     pub fn init(draw_state: &DrawState) -> Self {
         Self {
-            console_rect: draw_state.new_rect((100., 100., 200., 200.), Color::rgb(1., 0., 0.))
+            console_rect: draw_state.new_prim(((100., 100., 200., 200.), Color::rgb(1., 0., 0.)))
         }
     }
 }
