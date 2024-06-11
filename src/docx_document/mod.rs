@@ -293,6 +293,16 @@ impl From<u32> for Color {
     }
 }
 
+impl From<Color> for wgpu::Color {
+    fn from(Color { r, g, b, a }: Color) -> Self {
+        Self {
+            r: r as f64,
+            g: g as f64,
+            b: b as f64,
+            a: a as f64,
+        }
+    }
+}
 
 #[derive(Default, Debug, Clone)]
 pub enum TextWidth {

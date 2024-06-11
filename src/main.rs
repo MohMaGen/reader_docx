@@ -9,6 +9,7 @@ use winit::{
     window::{Window, WindowAttributes},
 };
 pub mod colorscheme;
+pub mod document_draw;
 pub mod docx_document;
 pub mod draw;
 pub mod init;
@@ -78,9 +79,10 @@ impl ApplicationHandler for App<'_> {
             }
             winit::event::WindowEvent::KeyboardInput { event, .. } => {
                 keyboard_input::keyboard_input(Arc::clone(&self.state), event).log_if_error();
-                self.draw_state
-                    .as_ref()
-                    .map(|draw_state| draw_state.window.request_redraw());
+
+                if let Some(draw_state) = self.draw_state.as_ref() {
+                    draw_state.window.request_redraw();
+                }
             }
             _ => {}
         }

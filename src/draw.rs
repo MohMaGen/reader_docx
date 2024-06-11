@@ -2,10 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 
-use crate::{
-    traits::AsAnyhow,
-    App,
-};
+use crate::{traits::AsAnyhow, App};
 
 pub struct DrawState<'window> {
     pub window: Arc<winit::window::Window>,
@@ -37,7 +34,7 @@ impl App<'_> {
             .as_ref()
             .context("Draw state isnot inited yet")?;
 
-        let state_copy = Arc::clone(&self.state).lock().as_anyhow()?.clone();
+        let state_copy = Arc::clone(&self.state).lock().to_anyhow()?.clone();
 
         let frame = draw_state
             .surface
@@ -57,7 +54,7 @@ impl App<'_> {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                        load: wgpu::LoadOp::Clear(state_copy.colorscheme.page_bg_color.into()),
                         store: wgpu::StoreOp::Store,
                     },
                 })],

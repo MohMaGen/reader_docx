@@ -82,6 +82,7 @@ impl DrawState<'_> {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_mode<'a, 'b: 'a>(
         &'b self,
         status_line_rect: math::Rectangle,

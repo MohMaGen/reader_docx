@@ -15,6 +15,7 @@ pub enum PrimitiveProperties {
         color: Color,
     },
     PlainText(PlainTextProperties),
+
     #[default]
     Empty,
 }
@@ -78,7 +79,7 @@ impl DrawState<'_> {
                 rpass.push_debug_group("Draw Rect Primitive");
 
                 rpass.set_pipeline(&self.fill_pipeline.pipeline);
-                rpass.set_bind_group(0, &bindgroup, &[]);
+                rpass.set_bind_group(0, bindgroup, &[]);
                 rpass.set_vertex_buffer(0, self.fill_pipeline.vertex_buffer.slice(..));
                 rpass.draw(0..6, 0..1);
 
@@ -88,7 +89,7 @@ impl DrawState<'_> {
                 rpass.push_debug_group("Draw Plain Text Primitive");
 
                 rpass.set_pipeline(&self.text_pipeline.pipeline);
-                rpass.set_bind_group(0, &bindgroup, &[]);
+                rpass.set_bind_group(0, bindgroup, &[]);
                 rpass.set_vertex_buffer(0, self.text_pipeline.vertex_buffer.slice(..));
                 rpass.draw(0..6, 0..1);
 
@@ -111,7 +112,7 @@ impl DrawState<'_> {
 
 impl DrawState<'_> {
     fn new_plain_text(&self, prop: PlainTextProperties) -> Primitive {
-        if prop.content.len() == 0 {
+        if prop.content.is_empty() {
             return Primitive::default();
         }
 
@@ -134,10 +135,7 @@ impl DrawState<'_> {
             return Default::default();
         }
 
-        let uniform = self.calc_rect_uniform(
-            math::Rectangle::new(prop.left_top, size),
-            prop.color.clone(),
-        );
+        let uniform = self.calc_rect_uniform(math::Rectangle::new(prop.left_top, size), prop.color);
 
         let extent = wgpu::Extent3d {
             width: size.0 as u32,
@@ -228,39 +226,37 @@ impl DrawState<'_> {
     }
 
     fn update_plain_text(&self, new_prop: PlainTextProperties, primitive: &mut Primitive) {
-        match primitive {
-            Primitive {
-                prop: PrimitiveProperties::PlainText(prop),
-                wgpu:
-                    PrimitiveWgpu::Text {
-                        uniform,
-                        buffer,
-                        extent,
-                        ..
-                    },
-            } => {
-                if prop.content == new_prop.content && prop.scale == new_prop.scale {
-                    let uniform_value = self.calc_rect_uniform(
-                        math::Rectangle::new(
-                            new_prop.left_top,
-                            (extent.width as f32, extent.height as f32),
-                        ),
-                        new_prop.color,
-                    );
+        if let Primitive {
+            prop: PrimitiveProperties::PlainText(prop),
+            wgpu:
+                PrimitiveWgpu::Text {
+                    uniform,
+                    buffer,
+                    extent,
+                    ..
+                },
+        } = primitive
+        {
+            if prop.content == new_prop.content && prop.scale == new_prop.scale {
+                let uniform_value = self.calc_rect_uniform(
+                    math::Rectangle::new(
+                        new_prop.left_top,
+                        (extent.width as f32, extent.height as f32),
+                    ),
+                    new_prop.color,
+                );
 
-                    *uniform = uniform_value;
-                    self.queue
-                        .write_buffer(buffer, 0, bytemuck::cast_slice(&[uniform_value]));
-                } else {
-                    *primitive = self.new_plain_text(new_prop);
-                }
+                *uniform = uniform_value;
+                self.queue
+                    .write_buffer(buffer, 0, bytemuck::cast_slice(&[uniform_value]));
+            } else {
+                *primitive = self.new_plain_text(new_prop);
             }
-            _ => {}
         }
     }
 
     fn new_rect(&self, rect: math::Rectangle, color: Color) -> Primitive {
-        let uniform = self.calc_rect_uniform(rect, color.clone());
+        let uniform = self.calc_rect_uniform(rect, color);
         let buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -295,26 +291,24 @@ impl DrawState<'_> {
         primitive: &mut Primitive,
     ) {
         let new_rect = new_rect.into();
-        match primitive {
-            Primitive {
-                prop: PrimitiveProperties::Rect { rect, color },
-                wgpu:
-                    PrimitiveWgpu::Rect {
-                        uniform,
-                        buffer: uniform_buffer,
-                        ..
-                    },
-            } => {
-                if new_rect == *rect && new_color == *color {
-                    return;
-                }
-
-                let uniform_value = self.calc_rect_uniform(new_rect, new_color);
-                *uniform = uniform_value;
-                self.queue
-                    .write_buffer(uniform_buffer, 0, bytemuck::cast_slice(&[uniform_value]));
+        if let Primitive {
+            prop: PrimitiveProperties::Rect { rect, color },
+            wgpu:
+                PrimitiveWgpu::Rect {
+                    uniform,
+                    buffer: uniform_buffer,
+                    ..
+                },
+        } = primitive
+        {
+            if new_rect == *rect && new_color == *color {
+                return;
             }
-            _ => {}
+
+            let uniform_value = self.calc_rect_uniform(new_rect, new_color);
+            *uniform = uniform_value;
+            self.queue
+                .write_buffer(uniform_buffer, 0, bytemuck::cast_slice(&[uniform_value]));
         }
     }
 
@@ -346,7 +340,7 @@ impl DrawState<'_> {
 }
 
 fn get_glyphs_size(
-    glyphs: &Vec<rusttype::PositionedGlyph<'_>>,
+    glyphs: &[rusttype::PositionedGlyph<'_>],
     v_m: rusttype::VMetrics,
 ) -> (f32, f32) {
     let width = {
@@ -365,8 +359,7 @@ fn get_glyphs_size(
         (max_x - min_x) as f32
     };
     let height = { v_m.ascent - v_m.descent };
-    let size = (width, height);
-    size
+    (width, height)
 }
 
 impl<Rect: Into<math::Rectangle>, Colour: Into<Color>> From<(Rect, Colour)>
@@ -402,14 +395,11 @@ impl Primitive {
             Primitive {
                 prop: PrimitiveProperties::Rect { rect, .. },
                 ..
-            } => rect.clone(),
+            } => *rect,
             Primitive {
                 prop: PrimitiveProperties::PlainText(PlainTextProperties { left_top, .. }),
                 wgpu: PrimitiveWgpu::Text { extent, .. },
-            } => math::Rectangle::new(
-                left_top.clone(),
-                (extent.width as f32, extent.height as f32),
-            ),
+            } => math::Rectangle::new(*left_top, (extent.width as f32, extent.height as f32)),
             _ => Default::default(),
         }
     }

@@ -21,7 +21,7 @@ impl Vertex2d {
         }
     }
 
-    pub fn rect<'a>(l: f32, t: f32, r: f32, b: f32) -> [Vertex2d; 6] {
+    pub fn rect(l: f32, t: f32, r: f32, b: f32) -> [Vertex2d; 6] {
         [
             Vertex2d { pos: [l, b] },
             Vertex2d { pos: [r, b] },

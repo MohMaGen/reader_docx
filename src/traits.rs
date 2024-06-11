@@ -26,13 +26,13 @@ pub trait AllSame {
 
 pub trait AsAnyhow {
     type Item;
-    fn as_anyhow(self) -> anyhow::Result<Self::Item>;
+    fn to_anyhow(self) -> anyhow::Result<Self::Item>;
 }
 
 impl<T> AsAnyhow for Result<T, String> {
     type Item = T;
 
-    fn as_anyhow(self) -> anyhow::Result<Self::Item> {
+    fn to_anyhow(self) -> anyhow::Result<Self::Item> {
         self.map_err(anyhow::Error::msg)
     }
 }
@@ -40,7 +40,7 @@ impl<T> AsAnyhow for Result<T, String> {
 impl<T> AsAnyhow for LockResult<T> {
     type Item = T;
 
-    fn as_anyhow(self) -> anyhow::Result<Self::Item> {
+    fn to_anyhow(self) -> anyhow::Result<Self::Item> {
         self.map_err(|err| anyhow::Error::msg(err.to_string()))
     }
 }

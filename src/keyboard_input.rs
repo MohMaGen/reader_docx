@@ -26,10 +26,7 @@ pub fn keyboard_input(
         return Ok(());
     }
 
-    let mode = {
-        let mode = state.lock().as_anyhow()?.mode;
-        mode
-    };
+    let mode = state.lock().to_anyhow()?.mode;
 
     match mode {
         Mode::View => {
@@ -39,7 +36,7 @@ pub fn keyboard_input(
         }
         Mode::Command => match event.text {
             Some(s) if s == ":" => {
-                let mut state = state.lock().as_anyhow()?;
+                let mut state = state.lock().to_anyhow()?;
                 state.mode = Mode::CommandInput;
                 state.console_input = ":".into();
             }
@@ -66,30 +63,27 @@ fn process_command_enter(
     event: &winit::event::KeyEvent,
     state: Arc<Mutex<State>>,
 ) -> Result<bool, anyhow::Error> {
-    match event.physical_key {
-        winit::keyboard::PhysicalKey::Code(KeyCode::Enter) => {
-            let command = {
-                let mut state = state.lock().as_anyhow()?;
-                let command = state.console_input.clone();
-                state.console_input = String::new();
+    if let winit::keyboard::PhysicalKey::Code(KeyCode::Enter) = event.physical_key {
+        let command = {
+            let mut state = state.lock().to_anyhow()?;
+            let command = state.console_input.clone();
+            state.console_input = String::new();
 
-                command
-            };
+            command
+        };
 
-            match &command.trim()[1..5] {
-                "view" => {
-                    let mut state = state.lock().as_anyhow()?;
-                    state.console_input = "".into();
-                    state.mode = Mode::View;
-                }
-                "open" => {
-                    let state = Arc::clone(&state);
-                    std::thread::spawn(load_file_and_write_to_state(state));
-                }
-                _ => {}
+        match &command.trim()[1..5] {
+            "view" => {
+                let mut state = state.lock().to_anyhow()?;
+                state.console_input = "".into();
+                state.mode = Mode::View;
             }
+            "open" => {
+                let state = Arc::clone(&state);
+                std::thread::spawn(load_file_and_write_to_state(state));
+            }
+            _ => {}
         }
-        _ => {}
     }
 
     Ok(false)
@@ -103,7 +97,7 @@ fn load_file_and_write_to_state(state: Arc<Mutex<State>>) -> impl FnOnce() {
             println!("{}", document);
 
             {
-                let mut state = state.lock().as_anyhow()?;
+                let mut state = state.lock().to_anyhow()?;
                 state.document = Some(state::Document { document, path });
             }
 
@@ -117,12 +111,9 @@ fn process_command_input(
     event: &winit::event::KeyEvent,
     state: Arc<Mutex<State>>,
 ) -> Result<(), anyhow::Error> {
-    match event.clone().text {
-        Some(s) => {
-            let mut state = state.lock().as_anyhow()?;
-            state.console_input = format!("{}{}", state.console_input, s);
-        }
-        _ => {}
+    if let Some(s) = event.clone().text {
+        let mut state = state.lock().to_anyhow()?;
+        state.console_input = format!("{}{}", state.console_input, s);
     }
 
     Ok(())
@@ -136,7 +127,7 @@ fn command_mode_on_escape(
     Ok(match event.physical_key {
         PhysicalKey::Code(KeyCode::Escape) => {
             {
-                let mut state = state.lock().as_anyhow()?;
+                let mut state = state.lock().to_anyhow()?;
                 state.mode = Mode::CommandInput;
                 state.console_input = "".into();
             }
@@ -177,7 +168,7 @@ fn get_element(archive: &Vec<u8>, file: &str) -> anyhow::Result<Element> {
         .by_name(file)
         .context(format!("Failed to get {} file", file))?
         .read_to_string(&mut document)
-        .context(format!("Failed to read to string."))?;
+        .context("Failed to read to string.")?;
 
     document
         .parse()
