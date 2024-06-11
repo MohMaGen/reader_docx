@@ -1,6 +1,6 @@
-use std::sync::{Arc, Mutex};
+use std::{path::PathBuf, sync::{Arc, Mutex}};
 
-use crate::colorscheme::ColorScheme;
+use crate::{colorscheme::ColorScheme, docx_document::DocxDocument};
 
 #[derive(Clone, Default)]
 pub struct State {
@@ -8,6 +8,13 @@ pub struct State {
     pub mode: Mode,
     pub console_input: String,
     pub colorscheme: ColorScheme,
+    pub document: Option<Document>,
+}
+
+#[derive(Clone, Default)]
+pub struct Document {
+    pub document: Arc<Box<DocxDocument>>,
+    pub path: PathBuf,
 }
 
 #[derive(Clone, Copy, Default)]

@@ -350,7 +350,8 @@ fn get_glyphs_size(
     v_m: rusttype::VMetrics,
 ) -> (f32, f32) {
     let width = {
-        let min_x = glyphs.iter()
+        let min_x = glyphs
+            .iter()
             .filter_map(|g| g.pixel_bounding_box().map(|b| b.min.x))
             .next()
             .unwrap_or_default();
