@@ -1,32 +1,32 @@
 use std::sync::{Arc, Mutex};
 
 use draw::DrawState;
+use log_helper::LogHelper;
 use ui::UiState;
 use winit::{
     application::ApplicationHandler,
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowAttributes},
 };
+pub mod colorscheme;
+pub mod docx_document;
 pub mod draw;
 pub mod init;
-pub mod traits;
+pub mod keyboard_input;
+pub mod log_helper;
 pub mod math;
+pub mod primitives;
+pub mod state;
+pub mod traits;
+pub mod ui;
 pub mod uniforms;
 pub mod vertex;
-pub mod docx_document;
-pub mod ui;
-pub mod primitives;
-
-#[derive(Clone)]
-pub struct State {
-    pub value: f32,
-}
 
 pub struct App<'window> {
     pub window: Option<Arc<Window>>,
-    pub state: Arc<Mutex<State>>,
+    pub state: Arc<Mutex<state::State>>,
     pub draw_state: Option<DrawState<'window>>,
-    pub ui_primitives: Option<UiState>,
+    pub ui_primitives: UiState,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -49,7 +49,6 @@ impl ApplicationHandler for App<'_> {
         let window = Arc::new(window);
         self.window = Some(Arc::clone(&window));
         let draw_state = DrawState::init(Arc::clone(&window));
-        self.ui_primitives = Some(UiState::init(&draw_state));
         self.draw_state = Some(draw_state);
     }
 
@@ -61,7 +60,7 @@ impl ApplicationHandler for App<'_> {
     ) {
         match event {
             winit::event::WindowEvent::RedrawRequested => {
-                self.draw();
+                self.draw().log_if_error();
             }
             winit::event::WindowEvent::Resized(size) => {
                 if let Some(draw_state) = &mut self.draw_state {
@@ -76,6 +75,12 @@ impl ApplicationHandler for App<'_> {
             }
             winit::event::WindowEvent::CloseRequested => {
                 event_loop.exit();
+            }
+            winit::event::WindowEvent::KeyboardInput { event, .. } => {
+                keyboard_input::keyboard_input(Arc::clone(&self.state), event).log_if_error();
+                self.draw_state
+                    .as_ref()
+                    .map(|draw_state| draw_state.window.request_redraw());
             }
             _ => {}
         }

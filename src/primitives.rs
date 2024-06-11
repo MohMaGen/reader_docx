@@ -2,34 +2,69 @@ use wgpu::util::DeviceExt;
 
 use crate::{docx_document::Color, draw::DrawState, math, uniforms::Uniforms2d};
 
+#[derive(Default)]
 pub struct Primitive {
     pub prop: PrimitiveProperties,
     pub wgpu: PrimitiveWgpu,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum PrimitiveProperties {
-    Rect { rect: math::Rectangle, color: Color },
+    Rect {
+        rect: math::Rectangle,
+        color: Color,
+    },
+    PlainText(PlainTextProperties),
+    #[default]
+    Empty,
 }
 
+#[derive(Clone)]
+pub struct PlainTextProperties {
+    pub left_top: math::Point,
+    pub content: String,
+    pub font: rusttype::Font<'static>,
+    pub color: Color,
+    pub scale: f32,
+}
+
+#[derive(Default)]
 pub enum PrimitiveWgpu {
     Rect {
         uniform: Uniforms2d,
         buffer: wgpu::Buffer,
         bindgroup: wgpu::BindGroup,
     },
+    Text {
+        uniform: Uniforms2d,
+        buffer: wgpu::Buffer,
+        texture: wgpu::Texture,
+        extent: wgpu::Extent3d,
+        bindgroup: wgpu::BindGroup,
+    },
+    #[default]
+    Empty,
 }
 
 impl DrawState<'_> {
     pub fn new_prim(&self, prop: impl Into<PrimitiveProperties>) -> Primitive {
         match prop.into() {
             PrimitiveProperties::Rect { rect, color } => self.new_rect(rect, color),
+            PrimitiveProperties::PlainText(prop) => self.new_plain_text(prop),
+            _ => Default::default(),
         }
     }
 
     pub fn update_prim(&self, prop: impl Into<PrimitiveProperties>, primitive: &mut Primitive) {
+        if primitive.is_empty() {
+            *primitive = self.new_prim(prop);
+            return;
+        }
+
         match prop.into() {
             PrimitiveProperties::Rect { rect, color } => self.update_rect(rect, color, primitive),
+            PrimitiveProperties::PlainText(prop) => self.update_plain_text(prop, primitive),
+            _ => {}
         }
     }
 
@@ -40,11 +75,26 @@ impl DrawState<'_> {
     ) {
         match &primitive.wgpu {
             PrimitiveWgpu::Rect { bindgroup, .. } => {
+                rpass.push_debug_group("Draw Rect Primitive");
+
                 rpass.set_pipeline(&self.fill_pipeline.pipeline);
                 rpass.set_bind_group(0, &bindgroup, &[]);
                 rpass.set_vertex_buffer(0, self.fill_pipeline.vertex_buffer.slice(..));
                 rpass.draw(0..6, 0..1);
+
+                rpass.pop_debug_group();
             }
+            PrimitiveWgpu::Text { bindgroup, .. } => {
+                rpass.push_debug_group("Draw Plain Text Primitive");
+
+                rpass.set_pipeline(&self.text_pipeline.pipeline);
+                rpass.set_bind_group(0, &bindgroup, &[]);
+                rpass.set_vertex_buffer(0, self.text_pipeline.vertex_buffer.slice(..));
+                rpass.draw(0..6, 0..1);
+
+                rpass.pop_debug_group();
+            }
+            _ => {}
         }
     }
 
@@ -56,6 +106,163 @@ impl DrawState<'_> {
     ) {
         self.update_prim(prop, primitive);
         self.draw_prim(rpass, primitive);
+    }
+}
+
+impl DrawState<'_> {
+    fn new_plain_text(&self, prop: PlainTextProperties) -> Primitive {
+        if prop.content.as_str() == "" {
+            return Primitive::default();
+        }
+
+        let glyphs = prop
+            .font
+            .layout(
+                prop.content.as_str(),
+                rusttype::Scale::uniform(prop.scale),
+                rusttype::Point { x: 0f32, y: 0f32 },
+            )
+            .collect::<Vec<_>>();
+
+        let width = get_glyphs_width(&glyphs);
+        let height = {
+            let v_m = prop.font.v_metrics(rusttype::Scale::uniform(prop.scale));
+            v_m.ascent - v_m.descent
+        };
+        let size = (width, height);
+
+
+        let uniform = self.calc_rect_uniform(
+            math::Rectangle::new(prop.left_top, size),
+            prop.color.clone(),
+        );
+
+        let extent = wgpu::Extent3d {
+            width: size.0 as u32,
+            height: size.1 as u32,
+            depth_or_array_layers: 1,
+        };
+        let mut texels = vec![0u8; (extent.width * extent.height) as usize];
+        for glyph in glyphs.iter() {
+            let bb = glyph.pixel_bounding_box().unwrap_or_default();
+            let h = (extent.height - (bb.max.y - bb.min.y).abs() as u32) as u32;
+
+            let pos = {
+                let pos = glyph.position();
+                (pos.x as usize, pos.y as usize)
+            };
+
+            glyph.draw(|x, y, v| {
+                let (x, y) = (x as usize + pos.0, pos.1 + (extent.height - h - y) as usize);
+
+                let idx = y * extent.width as usize + x;
+                if idx < (extent.width * extent.height) as usize {
+                    texels[idx] = (v * 255f32) as u8;
+                }
+            });
+        }
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(&[uniform]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.queue.write_texture(
+            texture.as_image_copy(),
+            &texels,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(extent.width),
+                rows_per_image: None,
+            },
+            extent,
+        );
+
+        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: None,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        let bindgroup = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.text_pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+            label: None,
+        });
+
+        Primitive {
+            prop: PrimitiveProperties::PlainText(prop),
+            wgpu: PrimitiveWgpu::Text {
+                uniform,
+                buffer,
+                texture,
+                extent,
+                bindgroup,
+            },
+        }
+    }
+
+    fn update_plain_text(&self, new_prop: PlainTextProperties, primitive: &mut Primitive) {
+        match primitive {
+            Primitive {
+                prop: PrimitiveProperties::PlainText(prop),
+                wgpu:
+                    PrimitiveWgpu::Text {
+                        uniform,
+                        buffer,
+                        extent,
+                        ..
+                    },
+            } => {
+                if prop.content == new_prop.content && prop.scale == new_prop.scale {
+                    let uniform_value = self.calc_rect_uniform(
+                        math::Rectangle::new(
+                            new_prop.left_top,
+                            (extent.width as f32, extent.height as f32),
+                        ),
+                        new_prop.color,
+                    );
+
+                    *uniform = uniform_value;
+                    self.queue
+                        .write_buffer(buffer, 0, bytemuck::cast_slice(&[uniform_value]));
+                } else {
+                    *primitive = self.new_plain_text(new_prop);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn new_rect(&self, rect: math::Rectangle, color: Color) -> Primitive {
@@ -87,7 +294,7 @@ impl DrawState<'_> {
         }
     }
 
-    pub fn update_rect(
+    fn update_rect(
         &self,
         new_rect: impl Into<math::Rectangle>,
         new_color: Color,
@@ -113,6 +320,7 @@ impl DrawState<'_> {
                 self.queue
                     .write_buffer(uniform_buffer, 0, bytemuck::cast_slice(&[uniform_value]));
             }
+            _ => {}
         }
     }
 
@@ -143,11 +351,88 @@ impl DrawState<'_> {
     }
 }
 
-impl<Rect: Into<math::Rectangle>> From<(Rect, Color)> for PrimitiveProperties {
-    fn from((rect, color): (Rect, Color)) -> Self {
+fn get_glyphs_width(glyphs: &Vec<rusttype::PositionedGlyph<'_>>) -> f32 {
+    let width = glyphs
+        .last()
+        .map(|last| {
+            last.position().x + {
+                let bb = last.pixel_bounding_box().unwrap_or_default();
+                (bb.min.x - bb.max.x).abs()
+            } as f32
+        })
+        .unwrap_or_default();
+
+    width
+}
+
+impl<Rect: Into<math::Rectangle>, Colour: Into<Color>> From<(Rect, Colour)>
+    for PrimitiveProperties
+{
+    fn from((rect, color): (Rect, Colour)) -> Self {
         Self::Rect {
             rect: rect.into(),
+            color: color.into(),
+        }
+    }
+}
+
+impl From<PlainTextProperties> for PrimitiveProperties {
+    fn from(prop: PlainTextProperties) -> Self {
+        Self::PlainText(prop)
+    }
+}
+
+impl Primitive {
+    pub fn is_empty(&self) -> bool {
+        matches!(
+            self,
+            Primitive {
+                prop: PrimitiveProperties::Empty,
+                wgpu: PrimitiveWgpu::Empty
+            }
+        )
+    }
+
+    pub fn get_rect(&self) -> math::Rectangle {
+        match self {
+            Primitive {
+                prop: PrimitiveProperties::Rect { rect, .. },
+                ..
+            } => rect.clone(),
+            Primitive {
+                prop: PrimitiveProperties::PlainText(PlainTextProperties { left_top, .. }),
+                wgpu: PrimitiveWgpu::Text { extent, .. },
+            } => math::Rectangle::new(
+                left_top.clone(),
+                (extent.width as f32, extent.height as f32),
+            ),
+            _ => Default::default(),
+        }
+    }
+}
+
+impl PlainTextProperties {
+    pub fn new(
+        rect: impl Into<math::Rectangle>,
+        color: impl Into<Color>,
+        content: String,
+        font: rusttype::Font<'static>,
+    ) -> Self {
+        let (rect, color) = (rect.into(), color.into());
+        let (left_top, size) = rect.get_point_and_size();
+
+        let height = {
+            let v_m = font.v_metrics(rusttype::Scale::uniform(1.));
+            v_m.ascent - v_m.descent
+        };
+        let scale = size.height / height;
+
+        Self {
+            left_top,
             color,
+            content,
+            font,
+            scale,
         }
     }
 }

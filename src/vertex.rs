@@ -6,6 +6,7 @@ pub struct Vertex2d {
     pub pos: [f32; 2],
 }
 
+
 impl Vertex2d {
     const ATTRIBUTES: [wgpu::VertexAttribute; 1] = [wgpu::VertexAttribute {
         offset: 0,
@@ -40,3 +41,4 @@ impl Vertex2d {
         Vertex2d { pos: [1.0, 1.0] },
     ];
 }
+

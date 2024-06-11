@@ -1,12 +1,12 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use crate::{uniforms::Uniforms2d, vertex::Vertex2d};
+use crate::{draw::TextPipeline, state::State, uniforms::Uniforms2d, vertex::Vertex2d};
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
 use crate::{
     draw::{DrawState, FillPipeline},
-    App, State,
+    App,
 };
 
 impl App<'_> {
@@ -15,14 +15,8 @@ impl App<'_> {
             state: State::init(),
             window: None,
             draw_state: None,
-            ui_primitives: None,
+            ui_primitives: crate::ui::UiState::default(),
         }
-    }
-}
-
-impl State {
-    pub fn init() -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self { value: 10. }))
     }
 }
 
@@ -75,6 +69,7 @@ impl<'window> DrawState<'window> {
         config.format = swapchain_format;
 
         let fill_pipeline = get_fill_pipeline(&device, &config);
+        let text_pipeline = get_text_pipeline(&device, &config);
 
         surface.configure(&device, &config);
 
@@ -85,7 +80,100 @@ impl<'window> DrawState<'window> {
             device,
             queue,
             fill_pipeline,
+            text_pipeline,
         }
+    }
+}
+
+fn get_text_pipeline(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> TextPipeline {
+    let fill_shader =
+        device.create_shader_module(wgpu::include_wgsl!("../shaders/text_shader.wgsl"));
+
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: None,
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(64 + 16),
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+
+    let text_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Text pipeline Layout"),
+        bind_group_layouts: &[&bind_group_layout],
+        push_constant_ranges: &[],
+    });
+
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Text pipeline"),
+        layout: Some(&text_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &fill_shader,
+            entry_point: "vs_main",
+            buffers: &[Vertex2d::layout()],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &fill_shader,
+            entry_point: "fs_main",
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: config.format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: Some(wgpu::Face::Back),
+            polygon_mode: wgpu::PolygonMode::Fill,
+            unclipped_depth: false,
+            conservative: false,
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState {
+            count: 1,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+    });
+
+    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Vertex Buffer"),
+        contents: bytemuck::cast_slice(Vertex2d::RECT),
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+    });
+
+    TextPipeline {
+        pipeline,
+        vertex_buffer,
+        bind_group_layout,
     }
 }
 
@@ -179,4 +267,3 @@ fn get_fill_pipeline(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration)
         uniform_buffer,
     }
 }
-

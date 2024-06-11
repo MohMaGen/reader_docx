@@ -1,22 +1,22 @@
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Point {
     pub x: f32,
     pub y: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Size {
     pub width: f32,
     pub height: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Rectangle {
     pub left_top: Point,
     pub right_bottom: Point,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Paddings {
     pub top: f32,
     pub right: f32,
@@ -207,7 +207,6 @@ impl Rectangle {
     }
 }
 
-
 impl From<(u32, u32)> for Size {
     fn from((width, height): (u32, u32)) -> Self {
         Self {
@@ -254,5 +253,14 @@ impl std::ops::Mul<f32> for Rectangle {
 
     fn mul(self, rhs: f32) -> Self::Output {
         self.with_size_centered(self.get_point_and_size().1 * rhs)
+    }
+}
+
+impl From<Point> for rusttype::Point<f32> {
+    fn from(value: Point) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+        }
     }
 }

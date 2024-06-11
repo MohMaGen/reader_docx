@@ -1,9 +1,9 @@
+use crate::{docx_document::Color, state};
 
 #[derive(Debug, Clone)]
 pub struct ColorScheme {
-    pub console_bg_color: Color,
-    pub console_fg_color: Color,
-    pub console_border_color: Color,
+    pub statusline_bg_color: Color,
+    pub statusline_fg_color: Color,
 
     pub view_mode_color: Color,
     pub command_mode_color: Color,
@@ -17,17 +17,26 @@ pub struct ColorScheme {
 impl Default for ColorScheme {
     fn default() -> Self {
         Self {
-            console_bg_color: Color::rgb(0x38, 0x4b, 0x55),
-            console_fg_color: Color::rgb(0xd3, 0xc6, 0xaa),
-            console_border_color: Color::rgb(0xd3, 0xc6, 0xaa),
+            statusline_bg_color: Color::from(0x384b55ff),
+            statusline_fg_color: Color::from(0xd3c6aaff),
 
-            view_mode_color: Color::rgb(0xe6, 0x7e, 0x80),
-            command_mode_color: Color::rgb(0x7f, 0xbb, 0xb3),
-            edit_mode_color: Color::rgb(0xdb, 0xbc, 0x7f),
+            view_mode_color: Color::from(0xe67e80ff),
+            command_mode_color: Color::from(0x7fbbb3ff),
+            edit_mode_color: Color::from(0xdbbc7fff),
 
-            page_color: Color::rgb(0xd3, 0xc6, 0xaa),
-            page_bg_color: Color::rgb(0x4f, 0x5b, 0x58),
-            page_border_color: Color::rgb(0xe6, 0x7e, 0x80),
+            page_color: Color::from(0xd3c6aaff),
+            page_bg_color: Color::from(0x4f5b58ff),
+            page_border_color: Color::from(0xe67e80ff),
+        }
+    }
+}
+
+impl ColorScheme {
+    pub fn get_mode_color(&self, mode: state::Mode) -> Color {
+        match mode {
+            state::Mode::View => self.view_mode_color,
+            state::Mode::Edit => self.edit_mode_color,
+            state::Mode::Command | state::Mode::CommandInput => self.command_mode_color,
         }
     }
 }

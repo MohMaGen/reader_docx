@@ -27,7 +27,6 @@ impl super::FontTable {
             fonts.push(FontProperties {
                 name: font_name,
                 variants: variants.collect(),
-                ..Default::default()
             });
             fonts.len() - 1
         }

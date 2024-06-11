@@ -242,7 +242,7 @@ pub struct TextProperties {
     pub italic: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
     pub r: f32,
     pub g: f32,
@@ -274,6 +274,25 @@ impl Color {
         Self { r, g, b, a: 1.0 }
     }
 }
+
+impl From<(f32, f32, f32)> for Color {
+    fn from((r, g, b): (f32, f32, f32)) -> Self {
+        Self::rgb(r, g, b)
+    }
+}
+
+impl From<u32> for Color {
+    fn from(hex: u32) -> Self {
+        let num = hex.to_be_bytes();
+        Self {
+            r: num[0] as f32 / u8::MAX as f32,
+            g: num[1] as f32 / u8::MAX as f32,
+            b: num[2] as f32 / u8::MAX as f32,
+            a: num[3] as f32 / u8::MAX as f32,
+        }
+    }
+}
+
 
 #[derive(Default, Debug, Clone)]
 pub enum TextWidth {

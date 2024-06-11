@@ -17,4 +17,3 @@ impl Default for Uniforms2d {
         }
     }
 }
-

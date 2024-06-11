@@ -8,7 +8,6 @@ use crate::docx_document::{
     ParagraphProperties, SpacingProperties, TextDirection,
 };
 
-use std::io::Write;
 
 use super::{Color, DocxDocument, FontTable, TextSize, TextWidth};
 
