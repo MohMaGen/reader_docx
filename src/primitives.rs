@@ -111,26 +111,28 @@ impl DrawState<'_> {
 
 impl DrawState<'_> {
     fn new_plain_text(&self, prop: PlainTextProperties) -> Primitive {
-        if prop.content.as_str() == "" {
+        if prop.content.len() == 0 {
             return Primitive::default();
         }
 
+        let v_m = prop.font.v_metrics(rusttype::Scale::uniform(prop.scale));
         let glyphs = prop
             .font
             .layout(
                 prop.content.as_str(),
                 rusttype::Scale::uniform(prop.scale),
-                rusttype::Point { x: 0f32, y: 0f32 },
+                rusttype::Point {
+                    x: 0f32,
+                    y: v_m.ascent,
+                },
             )
             .collect::<Vec<_>>();
 
-        let width = get_glyphs_width(&glyphs);
-        let height = {
-            let v_m = prop.font.v_metrics(rusttype::Scale::uniform(prop.scale));
-            v_m.ascent - v_m.descent
-        };
-        let size = (width, height);
+        let size = get_glyphs_size(&glyphs, v_m);
 
+        if size.0 as u32 == 0 || size.1 as u32 == 0 {
+            return Default::default();
+        }
 
         let uniform = self.calc_rect_uniform(
             math::Rectangle::new(prop.left_top, size),
@@ -143,24 +145,16 @@ impl DrawState<'_> {
             depth_or_array_layers: 1,
         };
         let mut texels = vec![0u8; (extent.width * extent.height) as usize];
-        for glyph in glyphs.iter() {
-            let bb = glyph.pixel_bounding_box().unwrap_or_default();
-            let h = (extent.height - (bb.max.y - bb.min.y).abs() as u32) as u32;
-
-            let pos = {
-                let pos = glyph.position();
-                (pos.x as usize, pos.y as usize)
-            };
-
-            glyph.draw(|x, y, v| {
-                let (x, y) = (x as usize + pos.0, pos.1 + (extent.height - h - y) as usize);
-
-                let idx = y * extent.width as usize + x;
-                if idx < (extent.width * extent.height) as usize {
-                    texels[idx] = (v * 255f32) as u8;
-                }
-            });
+        for glyph in glyphs {
+            if let Some(bounding_box) = glyph.pixel_bounding_box() {
+                glyph.draw(|x, y, v| {
+                    let x = x + bounding_box.min.x as u32;
+                    let y = extent.height - (y + bounding_box.min.y as u32);
+                    texels[x as usize + y as usize * extent.width as usize] = (v * 255.0) as u8;
+                });
+            }
         }
+
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: extent,
@@ -351,18 +345,27 @@ impl DrawState<'_> {
     }
 }
 
-fn get_glyphs_width(glyphs: &Vec<rusttype::PositionedGlyph<'_>>) -> f32 {
-    let width = glyphs
-        .last()
-        .map(|last| {
-            last.position().x + {
-                let bb = last.pixel_bounding_box().unwrap_or_default();
-                (bb.min.x - bb.max.x).abs()
-            } as f32
-        })
-        .unwrap_or_default();
+fn get_glyphs_size(
+    glyphs: &Vec<rusttype::PositionedGlyph<'_>>,
+    v_m: rusttype::VMetrics,
+) -> (f32, f32) {
+    let width = {
+        let min_x = glyphs.iter()
+            .filter_map(|g| g.pixel_bounding_box().map(|b| b.min.x))
+            .next()
+            .unwrap_or_default();
 
-    width
+        let max_x = glyphs
+            .iter()
+            .rev()
+            .filter_map(|g| g.pixel_bounding_box().map(|b| b.max.x))
+            .next()
+            .unwrap_or_default();
+        (max_x - min_x) as f32
+    };
+    let height = { v_m.ascent - v_m.descent };
+    let size = (width, height);
+    size
 }
 
 impl<Rect: Into<math::Rectangle>, Colour: Into<Color>> From<(Rect, Colour)>

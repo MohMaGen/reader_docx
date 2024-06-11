@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
 
+use winit::event::ElementState;
+
 use crate::{
     state::{Mode, State},
     traits::AsAnyhow,
@@ -9,6 +11,13 @@ pub fn keyboard_input(
     state: Arc<Mutex<State>>,
     event: winit::event::KeyEvent,
 ) -> anyhow::Result<()> {
+    if event.repeat {
+        return Ok(());
+    }
+    if event.state == ElementState::Released {
+        return Ok(());
+    }
+
     let mode = {
         let mode = state.lock().as_anyhow()?.mode;
         mode
@@ -16,7 +25,9 @@ pub fn keyboard_input(
 
     match mode {
         Mode::View => {
-            command_mode_on_escape(&event, Arc::clone(&state))?;
+            if command_mode_on_escape(&event, Arc::clone(&state))? {
+                return Ok(());
+            }
         }
         Mode::Command => match event.text {
             Some(s) if s == ":" => {
@@ -28,7 +39,9 @@ pub fn keyboard_input(
         },
 
         Mode::CommandInput => {
-            command_mode_on_escape(&event, Arc::clone(&state))?;
+            if command_mode_on_escape(&event, Arc::clone(&state))? {
+                return Ok(());
+            }
 
             process_command_input(event, state)?;
         }
@@ -43,6 +56,7 @@ fn process_command_input(
 ) -> Result<(), anyhow::Error> {
     Ok(match event.text {
         Some(s) => {
+
             let mut state = state.lock().as_anyhow()?;
             state.console_input = format!("{}{}", state.console_input, s);
         }
@@ -53,12 +67,17 @@ fn process_command_input(
 fn command_mode_on_escape(
     event: &winit::event::KeyEvent,
     state: Arc<Mutex<State>>,
-) -> Result<(), anyhow::Error> {
+) -> Result<bool, anyhow::Error> {
     use winit::keyboard::{KeyCode, PhysicalKey};
     Ok(match event.physical_key {
         PhysicalKey::Code(KeyCode::Escape) => {
-            state.lock().as_anyhow()?.mode = Mode::Command;
+            {
+                let mut state = state.lock().as_anyhow()?;
+                state.mode = Mode::CommandInput;
+                state.console_input = "".into();
+            }
+            true
         }
-        _ => {}
+        _ => false,
     })
 }

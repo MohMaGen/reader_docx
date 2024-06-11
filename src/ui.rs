@@ -60,7 +60,7 @@ impl DrawState<'_> {
             PlainTextProperties::new(
                 status_line_rect
                     .add_paddings(7.)
-                    .move_left_top((mode_rect.width() + 10., 0.)),
+                    .move_left_top((mode_rect.width() , 0.)),
                 colorscheme.statusline_fg_color,
                 state.console_input.clone(),
                 ui_primitives.ui_font.clone(),
@@ -95,7 +95,7 @@ impl DrawState<'_> {
         let rect = status_line_rect.add_paddings(5.);
         self.update_prim(
             PlainTextProperties::new(
-                status_line_rect.add_paddings(7.),
+                status_line_rect.add_paddings(7.).move_left_top((3., 0.)),
                 colorscheme.statusline_bg_color,
                 state.mode.to_string(),
                 ui_font.clone(),
