@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use anyhow::Context;
+use anyhow::{Context, Ok};
 
-use crate::{traits::AsAnyhow, App};
+use crate::{colorscheme, traits::AsAnyhow, App};
 
 pub struct DrawState<'window> {
     pub window: Arc<winit::window::Window>,
@@ -29,12 +29,14 @@ pub struct TextPipeline {
 
 impl App<'_> {
     pub fn draw(&mut self) -> anyhow::Result<()> {
+        let state_copy = Arc::clone(&self.state).lock().to_anyhow()?.clone();
+
+        self.init_document_draw_if_must(&state_copy);
+
         let draw_state = self
             .draw_state
             .as_ref()
             .context("Draw state isnot inited yet")?;
-
-        let state_copy = Arc::clone(&self.state).lock().to_anyhow()?.clone();
 
         let frame = draw_state
             .surface
@@ -54,7 +56,7 @@ impl App<'_> {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(state_copy.colorscheme.page_bg_color.into()),
+                        load: wgpu::LoadOp::Clear(state_copy.colorscheme.fill_color.into()),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -63,11 +65,39 @@ impl App<'_> {
                 occlusion_query_set: None,
             });
 
+            if let Some(document) = state_copy.document.clone()
+                && let Some(document_draw) = &mut self.document_draw
+            {
+                draw_state.update_document_draw(
+                    document.document.clone(),
+                    document_draw,
+                    state_copy.colorscheme.clone(),
+                );
+
+                draw_state.draw_document_draw(&mut rpass, document_draw);
+            }
+
             draw_state.draw_ui(&mut self.ui_primitives, &state_copy, &mut rpass);
         }
 
         draw_state.queue.submit(Some(encoder.finish()));
         frame.present();
         Ok(())
+    }
+
+    fn init_document_draw_if_must(&mut self, state_copy: &crate::state::State) {
+        let Some(draw_state) = &self.draw_state else {
+            return;
+        };
+
+        let document = state_copy.document.clone();
+        if let Some(document) = document
+            && self.document_draw.is_none()
+        {
+            let colorscheme = state_copy.colorscheme.clone();
+            self.document_draw = Some(Box::new(
+                draw_state.new_document_draw(colorscheme, Arc::clone(&document.document)),
+            ));
+        }
     }
 }

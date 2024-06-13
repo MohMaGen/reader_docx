@@ -15,6 +15,7 @@ impl App<'_> {
             state: State::init(),
             window: None,
             draw_state: None,
+            document_draw: None,
             ui_primitives: crate::ui::UiState::default(),
         }
     }

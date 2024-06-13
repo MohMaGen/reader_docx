@@ -1,5 +1,7 @@
+#![feature(let_chains)]
 use std::sync::{Arc, Mutex};
 
+use document_draw::DocumentDraw;
 use draw::DrawState;
 use log_helper::LogHelper;
 use ui::UiState;
@@ -27,6 +29,7 @@ pub struct App<'window> {
     pub window: Option<Arc<Window>>,
     pub state: Arc<Mutex<state::State>>,
     pub draw_state: Option<DrawState<'window>>,
+    pub document_draw: Option<Box<DocumentDraw>>,
     pub ui_primitives: UiState,
 }
 

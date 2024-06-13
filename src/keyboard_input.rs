@@ -98,7 +98,7 @@ fn load_file_and_write_to_state(state: Arc<Mutex<State>>) -> impl FnOnce() {
 
             {
                 let mut state = state.lock().to_anyhow()?;
-                state.document = Some(state::Document { document, path });
+                state.document = Some(state::Document { document, path});
             }
 
             anyhow::Result::Ok(())

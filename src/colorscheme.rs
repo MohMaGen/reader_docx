@@ -12,6 +12,8 @@ pub struct ColorScheme {
     pub page_color: Color,
     pub page_bg_color: Color,
     pub page_border_color: Color,
+
+    pub fill_color: Color,
 }
 
 impl Default for ColorScheme {
@@ -27,6 +29,7 @@ impl Default for ColorScheme {
             page_color: Color::from(0xd3c6aaff),
             page_bg_color: Color::from(0x4f5b58ff),
             page_border_color: Color::from(0xe67e80ff),
+            fill_color: Color::from(0x1e2326),
         }
     }
 }

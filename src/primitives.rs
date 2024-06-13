@@ -430,3 +430,21 @@ impl PlainTextProperties {
         }
     }
 }
+
+impl std::fmt::Debug for Primitive {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.prop {
+            PrimitiveProperties::Rect { rect, color } => {
+                write!(f, "RECT ({:?}, {:?})", rect, color)
+            }
+            PrimitiveProperties::PlainText(PlainTextProperties {
+                left_top,
+                content,
+                color,
+                scale,
+                ..
+            }) => write!(f, "TEXT ( {left_top:?}, {content:?}, {color:?}, {scale:?})"),
+            PrimitiveProperties::Empty => write!(f, "Text"),
+        }
+    }
+}

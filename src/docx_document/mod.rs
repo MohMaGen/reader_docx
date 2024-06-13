@@ -8,6 +8,7 @@ pub mod display;
 pub mod from_minidom;
 pub mod getters;
 pub mod parse_fonts;
+pub use getters::SectrOfProperties;
 
 #[derive(Default, Debug)]
 pub struct DocxDocument {
@@ -323,5 +324,11 @@ impl Default for TextSize {
 impl From<i32> for TextSize {
     fn from(value: i32) -> Self {
         Self(value as f32 / 2.0)
+    }
+}
+
+impl DocxNode {
+    pub fn is_paragraph(&self) -> bool {
+        matches!(self, DocxNode::Paragrapth {..})
     }
 }
