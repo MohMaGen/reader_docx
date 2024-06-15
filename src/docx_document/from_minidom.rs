@@ -9,7 +9,7 @@ use crate::docx_document::{
 };
 
 
-use super::{Color, DocxDocument, FontTable, TextSize, TextWidth};
+use super::{Color, DocxDocument, FontTable, TextSize, TextWeight};
 
 impl<'a> TryFrom<(&'a minidom::Element, &'a minidom::Element)> for DocxDocument {
     type Error = anyhow::Error;
@@ -234,7 +234,8 @@ fn parse_text_properties(
         .get_childs_attr::<i32>("szCs", "w:val")
         .map(TextSize::from);
 
-    let font_handle = if let Some(font_name) = rpr.get_childs_attr::<String>("rFonts", "w:ascii") {
+    let font_name = rpr.get_childs_attr::<String>("rFonts", "w:ascii");
+    let font_handle = if let Some(font_name) = font_name.clone() {
         document.init_or_push_to_font(font_name, content.clone())
     } else {
         document.push_to_default_font(content.clone())
@@ -244,7 +245,7 @@ fn parse_text_properties(
 
     let width = rpr
         .has_child_ans("b")
-        .then_some(TextWidth::Bold)
+        .then_some(TextWeight::Bold)
         .unwrap_or_default();
 
     let italic = rpr.has_child_ans("i");
@@ -253,9 +254,10 @@ fn parse_text_properties(
 
     Some(super::TextProperties {
         font_handle,
+        font_name,
         size,
         size_cs,
-        width,
+        weight: width,
         color,
         italic,
         underline,

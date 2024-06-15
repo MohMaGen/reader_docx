@@ -31,7 +31,7 @@ impl App<'_> {
     pub fn draw(&mut self) -> anyhow::Result<()> {
         let state_copy = Arc::clone(&self.state).lock().to_anyhow()?.clone();
 
-        self.init_document_draw_if_must(&state_copy);
+        self.init_document_draw_if_must(&state_copy)?;
 
         let draw_state = self
             .draw_state
@@ -52,7 +52,7 @@ impl App<'_> {
             self.document_draw = Some(Box::new(draw_state.new_document_draw(
                 state_copy.colorscheme.clone(),
                 Arc::clone(&document.document),
-            )))
+            )?))
         }
 
         if let Some(document_draw) = self.document_draw.as_mut() {
@@ -93,9 +93,12 @@ impl App<'_> {
         Ok(())
     }
 
-    fn init_document_draw_if_must(&mut self, state_copy: &crate::state::State) {
+    fn init_document_draw_if_must(
+        &mut self,
+        state_copy: &crate::state::State,
+    ) -> anyhow::Result<()> {
         let Some(draw_state) = &self.draw_state else {
-            return;
+            return Ok(());
         };
 
         let document = state_copy.document.clone();
@@ -104,8 +107,10 @@ impl App<'_> {
         {
             let colorscheme = state_copy.colorscheme.clone();
             self.document_draw = Some(Box::new(
-                draw_state.new_document_draw(colorscheme, Arc::clone(&document.document)),
+                draw_state.new_document_draw(colorscheme, Arc::clone(&document.document))?,
             ));
         }
+
+        Ok(())
     }
 }

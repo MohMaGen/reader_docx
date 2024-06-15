@@ -232,12 +232,13 @@ impl FromStr for Justification {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct TextProperties {
     pub font_handle: FontHandle,
+    pub font_name: Option<String>,
     pub size: Option<TextSize>,
     pub size_cs: Option<TextSize>,
-    pub width: TextWidth,
+    pub weight: TextWeight,
     pub color: Option<Color>,
     pub underline: bool,
     pub italic: bool,
@@ -267,10 +268,19 @@ impl FromStr for Color {
 }
 
 impl Color {
+    pub const BLACK: Self = Color {
+        r: 0.,
+        g: 0.,
+        b: 0.,
+        a: 1.,
+    };
+
+    #[inline]
     pub fn as_array(&self) -> [f32; 4] {
         [self.r, self.g, self.b, self.a]
     }
 
+    #[inline]
     pub fn rgb(r: f32, g: f32, b: f32) -> Self {
         Self { r, g, b, a: 1.0 }
     }
@@ -305,14 +315,14 @@ impl From<Color> for wgpu::Color {
     }
 }
 
-#[derive(Default, Debug, Clone)]
-pub enum TextWidth {
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub enum TextWeight {
     #[default]
     Regular,
     Bold,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TextSize(pub f32);
 
 impl Default for TextSize {
@@ -329,6 +339,22 @@ impl From<i32> for TextSize {
 
 impl DocxNode {
     pub fn is_paragraph(&self) -> bool {
-        matches!(self, DocxNode::Paragrapth {..})
+        matches!(self, DocxNode::Paragrapth { .. })
+    }
+}
+
+impl TextProperties {
+    pub fn get_font_idx(&self) -> (String, String) {
+        let mode = match (self.weight.clone(), self.italic) {
+            (TextWeight::Bold, false) => String::from("Bold"),
+            (TextWeight::Regular, false) => String::from("Regular"),
+            (TextWeight::Regular, true) => String::from("Italic"),
+            (TextWeight::Bold, true) => String::from("BoldItalic"),
+        };
+
+        (
+            self.font_name.clone().unwrap_or("Default Font".into()),
+            mode,
+        )
     }
 }

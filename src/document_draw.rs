@@ -1,19 +1,28 @@
-use std::{ops::Range, rc::Rc, sync::Arc};
+use std::{collections::HashMap, ops::Range, path::PathBuf, sync::Arc};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     colorscheme::ColorScheme,
-    docx_document::{self, DocxDocument},
+    docx_document::{self, Color, TextNode, TextProperties, TextSize},
     draw::DrawState,
+    font::{self, find_font},
     math,
-    primitives::{Primitive, PrimitiveProperties},
+    primitives::{PlainTextProperties, Primitive},
 };
 
 #[derive(Debug)]
 pub struct DocumentDraw {
     pub paragraphes: Vec<Paragraph>,
+    pub fonts: HashMap<FontIdx, rusttype::Font<'static>>,
     pub scroll: f32,
     pub scale: f32,
     pub pages: Vec<Page>,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct FontIdx {
+    pub name: String,
+    pub mode: String,
 }
 
 #[derive(Debug)]
@@ -27,15 +36,16 @@ pub struct Paragraph {
     pub words: Vec<Word>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Word {
     pub word: String,
-    pub glyph_views: Vec<GlyphView>,
+    pub glyphs_views: Vec<GlyphsView>,
 }
 
-#[derive(Debug)]
-pub struct GlyphView {
+#[derive(Debug, Default)]
+pub struct GlyphsView {
     pub word_range: Range<usize>,
+    pub properties: TextProperties,
     pub glyphs: Vec<rusttype::PositionedGlyph<'static>>,
     pub primitive: Primitive,
 }
@@ -58,15 +68,17 @@ pub enum DocumentCommand {
 }
 
 impl DrawState<'_> {
+    const DEFAULT_VERTICAL_SPACING: f32 = 1.5;
     const DEFAULT_SPACING_BEFORE: f32 = 20.;
     const DEFAULT_SPACING_AFTER: f32 = 20.;
     const PAGE_SPACE_BETWEEN: f32 = 100.;
+    const DEFAULT_FONT_SIZE: f32 = 12.;
 
     pub fn new_document_draw(
         &self,
         colorscheme: ColorScheme,
         document: Arc<Box<docx_document::DocxDocument>>,
-    ) -> DocumentDraw {
+    ) -> anyhow::Result<DocumentDraw> {
         let mut document_draw = DocumentDraw::default();
 
         let page_properties = PageProperties::from(document.get_properties());
@@ -96,35 +108,91 @@ impl DrawState<'_> {
         document_draw.pages = vec![first_page];
 
         let Some(nodes) = &Arc::clone(&document).content.nodes else {
-            return document_draw;
+            return Ok(document_draw);
         };
 
         for paragraph in nodes.iter() {
             let docx_document::DocxNode::Paragrapth {
                 properties,
-                attrs,
                 texts,
+                ..
             } = paragraph
             else {
                 continue;
             };
+            let paragraph_tp = properties.text_properties.clone().unwrap_or_default();
 
             let delta = properties
                 .spacing
                 .before
-                .unwrap_or(Self::DEFAULT_SPACING_BEFORE);
+                .unwrap_or(Self::DEFAULT_SPACING_BEFORE * ctx.scale);
 
             self.vertical_offset(&mut ctx, &mut document_draw, delta);
+
+            let mut words = get_words(texts);
+
+            self.create_words_prims(&mut words, &mut document_draw, paragraph_tp, &ctx)?;
+
+            let lines = get_lines(words, &ctx);
+
+            for line in lines.iter() {
+
+            }
 
             let delta = properties
                 .spacing
                 .after
-                .unwrap_or(Self::DEFAULT_SPACING_AFTER);
+                .unwrap_or(Self::DEFAULT_SPACING_AFTER * ctx.scale);
 
             self.vertical_offset(&mut ctx, &mut document_draw, delta);
         }
 
-        document_draw
+        Ok(document_draw)
+    }
+
+    fn create_words_prims(
+        &self,
+        words: &mut Vec<Word>,
+        document_draw: &mut DocumentDraw,
+        paragraph_tp: TextProperties,
+        ctx: &Context,
+    ) -> Result<(), anyhow::Error> {
+        Ok(for word in words.iter_mut() {
+            for glyphs_view in word.glyphs_views.iter_mut() {
+                let content = (&word.word[glyphs_view.word_range.clone()]).to_string();
+
+                let font = document_draw.get_or_load_font(glyphs_view.properties.get_font_idx())?;
+
+                let color = glyphs_view
+                    .properties
+                    .color
+                    .unwrap_or(paragraph_tp.color.unwrap_or(Color::BLACK));
+
+                let left_top = (0., 0.).into();
+
+                let scale = ctx.scale
+                    * glyphs_view
+                        .properties
+                        .size
+                        .clone()
+                        .map(|sz| sz.0)
+                        .unwrap_or(
+                            paragraph_tp
+                                .size
+                                .clone()
+                                .map(|sz| sz.0)
+                                .unwrap_or(Self::DEFAULT_FONT_SIZE),
+                        );
+
+                glyphs_view.primitive = self.new_prim(PlainTextProperties {
+                    left_top,
+                    content,
+                    font,
+                    color,
+                    scale,
+                });
+            }
+        })
     }
 
     fn vertical_offset(&self, ctx: &mut Context, document_draw: &mut DocumentDraw, delta: f32) {
@@ -189,7 +257,9 @@ impl DrawState<'_> {
         rpass: &mut wgpu::RenderPass<'a>,
         document: &'a DocumentDraw,
     ) {
-        document.prims().for_each(|prim| self.draw_prim(rpass, prim));
+        document
+            .prims()
+            .for_each(|prim| self.draw_prim(rpass, prim));
     }
 
     fn new_page_with_offset(
@@ -200,7 +270,6 @@ impl DrawState<'_> {
         offset: f32,
         scale: f32,
     ) -> Page {
-        println!("AAAAA {scale:?}, {offset:?}");
         let size = page_properties.clone().size * scale;
 
         let first_page = Page {
@@ -214,7 +283,155 @@ impl DrawState<'_> {
     }
 }
 
+fn get_lines(words: Vec<Word>, ctx: &Context) -> Vec<Line> {
+    let mut lines = Vec::new();
+    let mut curr_line = Line {
+        height: 0.,
+        min_width: 0.,
+        range: 0..0,
+    };
+    for word in words.iter() {
+        let (widht, height) = get_words_sizes(word);
+        if curr_line.min_width + widht + Self::DEFAULT_VERTICAL_SPACING * ctx.scale
+            > ctx.page_content_rect.width()
+        {
+            let end = curr_line.range.end;
+            lines.push(curr_line);
+
+            curr_line = Line {
+                height,
+                min_width: widht,
+                range: end..(end + 1),
+            };
+            continue;
+        }
+
+        curr_line.min_width += widht;
+        curr_line.height = curr_line.height.max(height);
+        curr_line.range.end += 1;
+    }
+    lines
+}
+
+fn get_words_sizes(word: &Word) -> (f32, f32) {
+    let (widht, height) =
+        word.glyphs_views
+            .iter()
+            .fold((0., 0.), |(acc_width, acc_height), glyphs| {
+                let math::Size { width, height } = glyphs.primitive.get_rect().size();
+                (acc_width + width, height.max(acc_height))
+            });
+    (widht, height)
+}
+            struct Line {
+                height: f32,
+                min_width: f32,
+                range: Range<usize>,
+            }
+
+enum WordState {
+    Finished(Word),
+    Unfinished(Word),
+}
+fn get_words(texts: &Vec<TextNode>) -> Vec<Word> {
+    use WordState::*;
+    texts
+        .iter()
+        .fold(Vec::new(), |mut words, text| {
+            let mut curr_word = Word::default();
+            match words.pop() {
+                Some(Unfinished(word)) => curr_word = word,
+                Some(Finished(word)) => words.push(Finished(word)),
+                _ => {}
+            }
+
+            let TextNode {
+                properties,
+                content,
+            } = text;
+
+            for grapheme in content.graphemes(true) {
+                if grapheme.trim().len() == 0 {
+                    finish_curr_word(&mut words, &mut curr_word);
+                } else {
+                    push_grapheme_to_curr_word(properties, &mut curr_word, grapheme);
+                }
+            }
+
+            words.push(Unfinished(curr_word));
+
+            words
+        })
+        .iter()
+        .map(|word| match word {
+            Finished(word) | Unfinished(word) => word.clone_without_primitive(),
+        })
+        .collect()
+}
+
+fn push_grapheme_to_curr_word(properties: &TextProperties, curr_word: &mut Word, g: &str) {
+    let properties = properties.clone();
+
+    curr_word.word.push_str(g);
+    if let Some(last_glyphs_view) = curr_word.glyphs_views.last_mut() {
+        if last_glyphs_view.properties == properties {
+            last_glyphs_view.word_range.end += 1;
+        } else {
+            let last = last_glyphs_view.word_range.end;
+            curr_word.glyphs_views.push(GlyphsView {
+                word_range: last..(last + 1),
+                properties,
+                ..Default::default()
+            })
+        }
+    } else {
+        curr_word.glyphs_views.push(GlyphsView {
+            properties,
+            word_range: 0..1,
+            ..Default::default()
+        })
+    }
+}
+
+fn finish_curr_word(words: &mut Vec<WordState>, curr_word: &mut Word) {
+    use WordState::*;
+    words.push(Finished(curr_word.clone_without_primitive()));
+    *curr_word = Word::default();
+}
+
+impl Word {
+    fn clone_without_primitive(&self) -> Word {
+        Word {
+            word: self.word.clone(),
+            glyphs_views: self
+                .glyphs_views
+                .iter()
+                .map(|glyphs_view| GlyphsView {
+                    word_range: glyphs_view.word_range.clone(),
+                    properties: glyphs_view.properties.clone(),
+                    ..Default::default()
+                })
+                .collect(),
+        }
+    }
+}
+
 impl DocumentDraw {
+    pub fn get_or_load_font(
+        &mut self,
+        idx: impl Into<FontIdx>,
+    ) -> anyhow::Result<rusttype::Font<'static>> {
+        let idx = idx.into();
+
+        if let Some(font) = self.fonts.get(&idx) {
+            Ok(font.clone())
+        } else {
+            let font = font::find_font(idx.name.as_str(), Some(idx.mode.as_str()))?;
+            self.fonts.insert(idx, font.clone());
+            Ok(font)
+        }
+    }
+
     pub fn prims<'document>(&'document self) -> PrimIter<'document> {
         PrimIter {
             document: self,
@@ -292,8 +509,15 @@ impl Default for DocumentDraw {
         Self {
             pages: Default::default(),
             paragraphes: Default::default(),
+            fonts: Default::default(),
             scroll: 100.,
             scale: 0.5,
         }
+    }
+}
+
+impl From<(String, String)> for FontIdx {
+    fn from((name, mode): (String, String)) -> Self {
+        Self { name, mode }
     }
 }

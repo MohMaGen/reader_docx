@@ -164,7 +164,7 @@ impl std::fmt::Display for TextProperties {
         display_property("font handle", format!("{:?}", self.font_handle), 3, f)?;
 
         writeln!(f, "*")?;
-        display_property("width", format!("{:?}", self.width), 3, f)?;
+        display_property("width", format!("{:?}", self.weight), 3, f)?;
 
         writeln!(f, "*")?;
         display_property("italic", format!("{:?}", self.italic), 3, f)?;

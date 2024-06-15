@@ -1,4 +1,5 @@
 #![feature(let_chains)]
+#![feature(once_cell_try)]
 use std::sync::{Arc, Mutex};
 
 use document_draw::{DocumentCommand, DocumentDraw};
@@ -24,6 +25,7 @@ pub mod traits;
 pub mod ui;
 pub mod uniforms;
 pub mod vertex;
+pub mod font;
 
 pub struct App<'window> {
     pub window: Option<Arc<Window>>,
