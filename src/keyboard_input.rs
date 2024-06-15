@@ -6,9 +6,10 @@ use std::{
 
 use anyhow::Context;
 use minidom::Element;
-use winit::{event::ElementState, keyboard::KeyCode};
+use winit::{event::ElementState, keyboard::{KeyCode, PhysicalKey}};
 
 use crate::{
+    document_draw::DocumentDraw,
     docx_document::DocxDocument,
     log_helper::LogHelper,
     state::{self, Mode, State},
@@ -18,6 +19,7 @@ use crate::{
 pub fn keyboard_input(
     state: Arc<Mutex<State>>,
     event: winit::event::KeyEvent,
+    document_draw: Option<&mut Box<DocumentDraw>>,
 ) -> anyhow::Result<()> {
     if event.repeat {
         return Ok(());
@@ -33,6 +35,12 @@ pub fn keyboard_input(
             if command_mode_on_escape(&event, Arc::clone(&state))? {
                 return Ok(());
             }
+
+            if let Some(document_draw) = document_draw {
+                scale(&event, document_draw);
+                scroll(&event, document_draw);
+            }
+
         }
         Mode::Command => match event.text {
             Some(s) if s == ":" => {
@@ -63,7 +71,7 @@ fn process_command_enter(
     event: &winit::event::KeyEvent,
     state: Arc<Mutex<State>>,
 ) -> Result<bool, anyhow::Error> {
-    if let winit::keyboard::PhysicalKey::Code(KeyCode::Enter) = event.physical_key {
+    if let PhysicalKey::Code(KeyCode::Enter) = event.physical_key {
         let command = {
             let mut state = state.lock().to_anyhow()?;
             let command = state.console_input.clone();
@@ -89,6 +97,45 @@ fn process_command_enter(
     Ok(false)
 }
 
+fn scale(
+    event: &winit::event::KeyEvent,
+    document_draw: &mut Box<DocumentDraw>,
+) {
+    match event.text.as_ref() {
+        Some(input) if input == "-" => {
+            document_draw.scale = (document_draw.scale * 0.8).max(0.1);
+            log::info!("rescale. new is ( {} )", document_draw.scale);
+        }
+        Some(input) if input == "=" => {
+            document_draw.scale = 0.5;
+            log::info!("rescale. new is ( {} )", document_draw.scale);
+        }
+        Some(input) if input == "+" => {
+            document_draw.scale = (document_draw.scale * 1.2).min(2.);
+            log::info!("rescale. new is ( {} )", document_draw.scale);
+        }
+        _ => {}
+    }
+}
+
+fn scroll(
+    event: &winit::event::KeyEvent,
+    document_draw: &mut Box<DocumentDraw>,
+) {
+    match event.physical_key {
+        PhysicalKey::Code(KeyCode::KeyK) => {
+            document_draw.scale += 100.;
+            log::info!("scroll. new is ( {} )", document_draw.scroll);
+        }
+        PhysicalKey::Code(KeyCode::KeyJ) => {
+            document_draw.scale -= 100.;
+            log::info!("scroll. new is ( {} )", document_draw.scroll);
+        }
+        _ => {}
+    }
+
+}
+
 fn load_file_and_write_to_state(state: Arc<Mutex<State>>) -> impl FnOnce() {
     move || {
         (|| {
@@ -98,7 +145,7 @@ fn load_file_and_write_to_state(state: Arc<Mutex<State>>) -> impl FnOnce() {
 
             {
                 let mut state = state.lock().to_anyhow()?;
-                state.document = Some(state::Document { document, path});
+                state.document = Some(state::Document { document, path });
             }
 
             anyhow::Result::Ok(())
@@ -111,6 +158,14 @@ fn process_command_input(
     event: &winit::event::KeyEvent,
     state: Arc<Mutex<State>>,
 ) -> Result<(), anyhow::Error> {
+    if let PhysicalKey::Code(KeyCode::Backspace) = event.physical_key {
+        let mut state = state.lock().to_anyhow()?;
+        if state.console_input.len() > 1 {
+            state.console_input.pop();
+        }
+        return Ok(());
+    }
+
     if let Some(s) = event.clone().text {
         let mut state = state.lock().to_anyhow()?;
         state.console_input = format!("{}{}", state.console_input, s);

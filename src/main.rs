@@ -81,7 +81,12 @@ impl ApplicationHandler for App<'_> {
                 event_loop.exit();
             }
             winit::event::WindowEvent::KeyboardInput { event, .. } => {
-                keyboard_input::keyboard_input(Arc::clone(&self.state), event).log_if_error();
+                keyboard_input::keyboard_input(
+                    Arc::clone(&self.state),
+                    event,
+                    self.document_draw.as_mut(),
+                )
+                .log_if_error();
 
                 if let Some(draw_state) = self.draw_state.as_ref() {
                     draw_state.window.request_redraw();
