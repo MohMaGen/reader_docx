@@ -178,6 +178,11 @@ impl Rectangle {
         self.left_top.y
     }
 
+    pub fn size(self) -> Size {
+        let (_left_top, size) = self.get_point_and_size();
+        size
+    }
+
     pub fn width(self) -> f32 {
         let (_left_top, size) = self.get_point_and_size();
         size.width

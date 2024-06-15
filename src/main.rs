@@ -1,7 +1,7 @@
 #![feature(let_chains)]
 use std::sync::{Arc, Mutex};
 
-use document_draw::DocumentDraw;
+use document_draw::{DocumentCommand, DocumentDraw};
 use draw::DrawState;
 use log_helper::LogHelper;
 use ui::UiState;
@@ -30,6 +30,7 @@ pub struct App<'window> {
     pub state: Arc<Mutex<state::State>>,
     pub draw_state: Option<DrawState<'window>>,
     pub document_draw: Option<Box<DocumentDraw>>,
+    pub document_commands: Vec<DocumentCommand>,
     pub ui_primitives: UiState,
 }
 
@@ -52,7 +53,9 @@ impl ApplicationHandler for App<'_> {
         };
         let window = Arc::new(window);
         self.window = Some(Arc::clone(&window));
+
         let draw_state = DrawState::init(Arc::clone(&window));
+
         self.draw_state = Some(draw_state);
     }
 
@@ -84,7 +87,7 @@ impl ApplicationHandler for App<'_> {
                 keyboard_input::keyboard_input(
                     Arc::clone(&self.state),
                     event,
-                    self.document_draw.as_mut(),
+                    &mut self.document_commands,
                 )
                 .log_if_error();
 

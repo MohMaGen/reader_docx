@@ -245,6 +245,7 @@ impl DrawState<'_> {
                     ),
                     new_prop.color,
                 );
+                *prop = new_prop;
 
                 *uniform = uniform_value;
                 self.queue
@@ -292,20 +293,17 @@ impl DrawState<'_> {
     ) {
         let new_rect = new_rect.into();
         if let Primitive {
-            prop: PrimitiveProperties::Rect { rect, color },
             wgpu:
                 PrimitiveWgpu::Rect {
                     uniform,
                     buffer: uniform_buffer,
                     ..
                 },
+            ..
         } = primitive
         {
-            if new_rect == *rect && new_color == *color {
-                return;
-            }
-
             let uniform_value = self.calc_rect_uniform(new_rect, new_color);
+            primitive.prop = (new_rect, new_color).into();
             *uniform = uniform_value;
             self.queue
                 .write_buffer(uniform_buffer, 0, bytemuck::cast_slice(&[uniform_value]));
@@ -390,6 +388,16 @@ impl Primitive {
         )
     }
 
+    pub fn get_rect_mut<'prim>(&'prim mut self) -> Option<&'prim mut math::Rectangle> {
+        match self {
+            Primitive {
+                prop: PrimitiveProperties::Rect { rect, .. },
+                ..
+            } => Some(rect),
+            _ => None,
+        }
+    }
+
     pub fn get_rect(&self) -> math::Rectangle {
         match self {
             Primitive {
@@ -445,6 +453,54 @@ impl std::fmt::Debug for Primitive {
                 ..
             }) => write!(f, "TEXT ( {left_top:?}, {content:?}, {color:?}, {scale:?})"),
             PrimitiveProperties::Empty => write!(f, "Text"),
+        }
+    }
+}
+
+impl PrimitiveProperties {
+    pub fn scroll(self, delta: f32) -> Self {
+        match self {
+            PrimitiveProperties::Rect { rect, color } => Self::Rect {
+                rect: rect.add_y(delta),
+                color,
+            },
+            PrimitiveProperties::PlainText(PlainTextProperties {
+                left_top,
+                content,
+                font,
+                color,
+                scale,
+            }) => Self::PlainText(PlainTextProperties {
+                left_top: (left_top.x, left_top.y + delta).into(),
+                content,
+                font,
+                color,
+                scale,
+            }),
+            PrimitiveProperties::Empty => PrimitiveProperties::Empty,
+        }
+    }
+
+    pub fn scale(self, ratio: f32) -> Self {
+        match self {
+            PrimitiveProperties::Rect { rect, color } => Self::Rect {
+                rect: rect.with_size(rect.size() * ratio),
+                color,
+            },
+            PrimitiveProperties::PlainText(PlainTextProperties {
+                left_top,
+                content,
+                font,
+                color,
+                scale,
+            }) => Self::PlainText(PlainTextProperties {
+                left_top: (left_top.x, left_top.y + ratio).into(),
+                content,
+                font,
+                color,
+                scale: scale * ratio,
+            }),
+            PrimitiveProperties::Empty => PrimitiveProperties::Empty,
         }
     }
 }

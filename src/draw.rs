@@ -46,6 +46,22 @@ impl App<'_> {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
+        if let Some(document) = state_copy.document.clone()
+            && self.document_draw.is_none()
+        {
+            self.document_draw = Some(Box::new(draw_state.new_document_draw(
+                state_copy.colorscheme.clone(),
+                Arc::clone(&document.document),
+            )))
+        }
+
+        if let Some(document_draw) = self.document_draw.as_mut() {
+            draw_state.update_document(document_draw);
+            while let Some(command) = self.document_commands.pop() {
+                draw_state.process_document_command(document_draw, command);
+            }
+        }
+
         let mut encoder = draw_state
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -65,15 +81,7 @@ impl App<'_> {
                 occlusion_query_set: None,
             });
 
-            if let Some(document) = state_copy.document.clone()
-                && let Some(document_draw) = &mut self.document_draw
-            {
-                draw_state.update_document_draw(
-                    document.document.clone(),
-                    document_draw,
-                    state_copy.colorscheme.clone(),
-                );
-
+            if let Some(document_draw) = self.document_draw.as_ref() {
                 draw_state.draw_document_draw(&mut rpass, document_draw);
             }
 

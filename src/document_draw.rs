@@ -1,11 +1,11 @@
-use std::{ops::Range, sync::Arc};
+use std::{ops::Range, rc::Rc, sync::Arc};
 
 use crate::{
     colorscheme::ColorScheme,
-    docx_document,
+    docx_document::{self, DocxDocument},
     draw::DrawState,
     math,
-    primitives::Primitive,
+    primitives::{Primitive, PrimitiveProperties},
 };
 
 #[derive(Debug)]
@@ -39,6 +39,7 @@ pub struct GlyphView {
     pub glyphs: Vec<rusttype::PositionedGlyph<'static>>,
     pub primitive: Primitive,
 }
+
 struct Context {
     page_content_rect: math::Rectangle,
     page_properties: PageProperties,
@@ -47,6 +48,13 @@ struct Context {
     v_width: f32,
     scroll: f32,
     scale: f32,
+}
+
+pub enum DocumentCommand {
+    NewScroll(f32),
+    DeltaScroll(f32),
+    NewScale(f32),
+    RatioScale(f32),
 }
 
 impl DrawState<'_> {
@@ -139,13 +147,41 @@ impl DrawState<'_> {
         }
     }
 
-    pub fn update_document_draw(
+    pub fn update_document(&self, document_draw: &mut DocumentDraw) {
+        document_draw.for_prims_mut(|prim| self.update_prim(prim.prop.clone(), prim));
+    }
+
+    pub fn process_document_command(
         &self,
-        document: Arc<Box<docx_document::DocxDocument>>,
         document_draw: &mut DocumentDraw,
-        colorscheme: ColorScheme,
+        command: DocumentCommand,
     ) {
-        *document_draw = self.new_document_draw(colorscheme, document)
+        match command {
+            DocumentCommand::NewScroll(new_scroll) => {
+                let scroll = new_scroll - document_draw.scroll;
+                self.delta_scroll(document_draw, scroll);
+            }
+            DocumentCommand::NewScale(scale) => {
+                let scale = scale / document_draw.scale;
+                self.ratio_scroll(document_draw, scale);
+            }
+            DocumentCommand::DeltaScroll(delta) => self.delta_scroll(document_draw, delta),
+            DocumentCommand::RatioScale(ratio) => self.ratio_scroll(document_draw, ratio),
+        }
+    }
+
+    fn ratio_scroll(&self, document_draw: &mut DocumentDraw, scale: f32) {
+        document_draw.for_prims_mut(|prim| {
+            let new_prop = prim.prop.clone().scale(scale);
+            self.update_prim(new_prop, prim);
+        })
+    }
+
+    fn delta_scroll(&self, document_draw: &mut DocumentDraw, scroll: f32) {
+        document_draw.for_prims_mut(|prim| {
+            let new_prop = prim.prop.clone().scroll(scroll);
+            self.update_prim(new_prop, prim);
+        })
     }
 
     pub fn draw_document_draw<'a, 'b: 'a>(
@@ -153,12 +189,8 @@ impl DrawState<'_> {
         rpass: &mut wgpu::RenderPass<'a>,
         document: &'a DocumentDraw,
     ) {
-        document
-            .pages
-            .iter()
-            .for_each(|page| self.draw_prim(rpass, &page.primitive))
+        document.prims().for_each(|prim| self.draw_prim(rpass, prim));
     }
-
 
     fn new_page_with_offset(
         &self,
@@ -168,7 +200,7 @@ impl DrawState<'_> {
         offset: f32,
         scale: f32,
     ) -> Page {
-        println!("AAAAA");
+        println!("AAAAA {scale:?}, {offset:?}");
         let size = page_properties.clone().size * scale;
 
         let first_page = Page {
@@ -179,6 +211,51 @@ impl DrawState<'_> {
             )),
         };
         first_page
+    }
+}
+
+impl DocumentDraw {
+    pub fn prims<'document>(&'document self) -> PrimIter<'document> {
+        PrimIter {
+            document: self,
+            state: PrimIterState::Pages(0),
+        }
+    }
+
+    pub fn for_prims_mut<'document>(
+        &'document mut self,
+        mut f: impl FnMut(&'document mut Primitive) -> (),
+    ) {
+        for page in self.pages.iter_mut() {
+            f(&mut page.primitive)
+        }
+    }
+}
+
+pub struct PrimIter<'document> {
+    document: &'document DocumentDraw,
+    state: PrimIterState,
+}
+
+pub enum PrimIterState {
+    Pages(usize),
+}
+
+impl<'a> Iterator for PrimIter<'a> {
+    type Item = &'a Primitive;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.state {
+            PrimIterState::Pages(curr) => {
+                if curr >= self.document.pages.len() {
+                    return None;
+                }
+                self.state = PrimIterState::Pages(curr + 1);
+
+                Some(&self.document.pages[curr].primitive)
+            }
+        }
     }
 }
 
