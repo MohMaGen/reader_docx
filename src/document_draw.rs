@@ -1,8 +1,8 @@
 use std::{ops::Range, sync::Arc};
 
 use crate::{
-    colorscheme::{self, ColorScheme},
-    docx_document::{self, DocxNode},
+    colorscheme::ColorScheme,
+    docx_document,
     draw::DrawState,
     math,
     primitives::Primitive,
@@ -159,6 +159,7 @@ impl DrawState<'_> {
             .for_each(|page| self.draw_prim(rpass, &page.primitive))
     }
 
+
     fn new_page_with_offset(
         &self,
         page_properties: &PageProperties,
@@ -167,6 +168,7 @@ impl DrawState<'_> {
         offset: f32,
         scale: f32,
     ) -> Page {
+        println!("AAAAA");
         let size = page_properties.clone().size * scale;
 
         let first_page = Page {

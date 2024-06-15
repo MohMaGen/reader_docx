@@ -74,6 +74,7 @@ fn process_command_enter(
     if let PhysicalKey::Code(KeyCode::Enter) = event.physical_key {
         let command = {
             let mut state = state.lock().to_anyhow()?;
+            state.mode = Mode::Command;
             let command = state.console_input.clone();
             state.console_input = String::new();
 
@@ -183,7 +184,7 @@ fn command_mode_on_escape(
         PhysicalKey::Code(KeyCode::Escape) => {
             {
                 let mut state = state.lock().to_anyhow()?;
-                state.mode = Mode::CommandInput;
+                state.mode = Mode::Command;
                 state.console_input = "".into();
             }
             true

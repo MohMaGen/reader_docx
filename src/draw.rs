@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Ok};
 
-use crate::{colorscheme, traits::AsAnyhow, App};
+use crate::{traits::AsAnyhow, App};
 
 pub struct DrawState<'window> {
     pub window: Arc<winit::window::Window>,
