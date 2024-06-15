@@ -21,7 +21,7 @@ pub fn find_font<'a>(
     let mut bytes = Vec::new();
     std::fs::File::open(font.path)
         .context("Failed to read font's file.")?
-        .read(&mut bytes)?;
+        .read_to_end(&mut bytes)?;
 
     if let Some(index) = font.index {
         rusttype::Font::try_from_vec_and_index(bytes, index as u32)

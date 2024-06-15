@@ -388,16 +388,6 @@ impl Primitive {
         )
     }
 
-    pub fn get_rect_mut<'prim>(&'prim mut self) -> Option<&'prim mut math::Rectangle> {
-        match self {
-            Primitive {
-                prop: PrimitiveProperties::Rect { rect, .. },
-                ..
-            } => Some(rect),
-            _ => None,
-        }
-    }
-
     pub fn get_rect(&self) -> math::Rectangle {
         match self {
             Primitive {

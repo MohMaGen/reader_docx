@@ -1,12 +1,11 @@
-use std::{collections::HashMap, ops::Range, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, ops::Range, sync::Arc};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     colorscheme::ColorScheme,
-    docx_document::{self, Color, TextNode, TextProperties, TextSize},
+    docx_document::{self, Color, TextNode, TextProperties},
     draw::DrawState,
-    font::{self, find_font},
-    math,
+    font, math,
     primitives::{PlainTextProperties, Primitive},
 };
 
@@ -113,9 +112,7 @@ impl DrawState<'_> {
 
         for paragraph in nodes.iter() {
             let docx_document::DocxNode::Paragrapth {
-                properties,
-                texts,
-                ..
+                properties, texts, ..
             } = paragraph
             else {
                 continue;
@@ -133,11 +130,9 @@ impl DrawState<'_> {
 
             self.create_words_prims(&mut words, &mut document_draw, paragraph_tp, &ctx)?;
 
-            let lines = get_lines(words, &ctx);
+            let lines = get_lines(words, &ctx, Self::DEFAULT_VERTICAL_SPACING * ctx.scale);
 
-            for line in lines.iter() {
-
-            }
+            for line in lines.iter() {}
 
             let delta = properties
                 .spacing
@@ -152,14 +147,14 @@ impl DrawState<'_> {
 
     fn create_words_prims(
         &self,
-        words: &mut Vec<Word>,
+        words: &mut [Word],
         document_draw: &mut DocumentDraw,
         paragraph_tp: TextProperties,
         ctx: &Context,
     ) -> Result<(), anyhow::Error> {
-        Ok(for word in words.iter_mut() {
+        for word in words.iter_mut() {
             for glyphs_view in word.glyphs_views.iter_mut() {
-                let content = (&word.word[glyphs_view.word_range.clone()]).to_string();
+                let content = word.word[glyphs_view.word_range.clone()].to_string();
 
                 let font = document_draw.get_or_load_font(glyphs_view.properties.get_font_idx())?;
 
@@ -192,7 +187,8 @@ impl DrawState<'_> {
                     scale,
                 });
             }
-        })
+        }
+        Ok(())
     }
 
     fn vertical_offset(&self, ctx: &mut Context, document_draw: &mut DocumentDraw, delta: f32) {
@@ -272,18 +268,17 @@ impl DrawState<'_> {
     ) -> Page {
         let size = page_properties.clone().size * scale;
 
-        let first_page = Page {
+        Page {
             page_properties: page_properties.clone(),
             primitive: self.new_prim((
                 math::Rectangle::new(((v_width - size.width) * 0.5, offset), size),
                 bg_color,
             )),
-        };
-        first_page
+        }
     }
 }
 
-fn get_lines(words: Vec<Word>, ctx: &Context) -> Vec<Line> {
+fn get_lines(words: Vec<Word>, ctx: &Context, vertical_space: f32) -> Vec<Line> {
     let mut lines = Vec::new();
     let mut curr_line = Line {
         height: 0.,
@@ -292,9 +287,7 @@ fn get_lines(words: Vec<Word>, ctx: &Context) -> Vec<Line> {
     };
     for word in words.iter() {
         let (widht, height) = get_words_sizes(word);
-        if curr_line.min_width + widht + Self::DEFAULT_VERTICAL_SPACING * ctx.scale
-            > ctx.page_content_rect.width()
-        {
+        if curr_line.min_width + widht + vertical_space > ctx.page_content_rect.width() {
             let end = curr_line.range.end;
             lines.push(curr_line);
 
@@ -323,17 +316,17 @@ fn get_words_sizes(word: &Word) -> (f32, f32) {
             });
     (widht, height)
 }
-            struct Line {
-                height: f32,
-                min_width: f32,
-                range: Range<usize>,
-            }
+struct Line {
+    height: f32,
+    min_width: f32,
+    range: Range<usize>,
+}
 
 enum WordState {
     Finished(Word),
     Unfinished(Word),
 }
-fn get_words(texts: &Vec<TextNode>) -> Vec<Word> {
+fn get_words(texts: &[TextNode]) -> Vec<Word> {
     use WordState::*;
     texts
         .iter()
@@ -351,7 +344,7 @@ fn get_words(texts: &Vec<TextNode>) -> Vec<Word> {
             } = text;
 
             for grapheme in content.graphemes(true) {
-                if grapheme.trim().len() == 0 {
+                if grapheme.trim().is_empty() {
                     finish_curr_word(&mut words, &mut curr_word);
                 } else {
                     push_grapheme_to_curr_word(properties, &mut curr_word, grapheme);
@@ -432,7 +425,7 @@ impl DocumentDraw {
         }
     }
 
-    pub fn prims<'document>(&'document self) -> PrimIter<'document> {
+    pub fn prims(& self) -> PrimIter<'_> {
         PrimIter {
             document: self,
             state: PrimIterState::Pages(0),
@@ -441,7 +434,7 @@ impl DocumentDraw {
 
     pub fn for_prims_mut<'document>(
         &'document mut self,
-        mut f: impl FnMut(&'document mut Primitive) -> (),
+        mut f: impl FnMut(&'document mut Primitive),
     ) {
         for page in self.pages.iter_mut() {
             f(&mut page.primitive)
