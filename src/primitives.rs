@@ -148,7 +148,11 @@ impl DrawState<'_> {
                 glyph.draw(|x, y, v| {
                     let x = x + bounding_box.min.x as u32;
                     let y = extent.height - (y + bounding_box.min.y as u32);
-                    texels[x as usize + y as usize * extent.width as usize] = (v * 255.0) as u8;
+                    if let Some(pxl) =
+                        texels.get_mut(x as usize + y as usize * extent.width as usize)
+                    {
+                        *pxl = (v * 255.0) as u8;
+                    }
                 });
             }
         }
@@ -388,6 +392,16 @@ impl Primitive {
         )
     }
 
+    pub fn get_rect_mut<'prim>(&'prim mut self) -> Option<&'prim mut math::Rectangle> {
+        match self {
+            Primitive {
+                prop: PrimitiveProperties::Rect { rect, .. },
+                ..
+            } => Some(rect),
+            _ => None,
+        }
+    }
+
     pub fn get_rect(&self) -> math::Rectangle {
         match self {
             Primitive {
@@ -491,6 +505,16 @@ impl PrimitiveProperties {
                 scale: scale * ratio,
             }),
             PrimitiveProperties::Empty => PrimitiveProperties::Empty,
+        }
+    }
+}
+
+impl Primitive {
+    pub fn get_scale(&self) -> f32 {
+        match self.prop {
+            PrimitiveProperties::Rect { rect, .. } => rect.height(),
+            PrimitiveProperties::PlainText(PlainTextProperties { scale, .. }) => scale,
+            PrimitiveProperties::Empty => 0.,
         }
     }
 }

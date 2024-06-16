@@ -6,7 +6,7 @@ use crate::{
     docx_document::{self, Color, TextNode, TextProperties},
     draw::DrawState,
     font, math,
-    primitives::{PlainTextProperties, Primitive},
+    primitives::{PlainTextProperties, Primitive, PrimitiveProperties},
 };
 
 #[derive(Debug)]
@@ -66,10 +66,16 @@ pub enum DocumentCommand {
     RatioScale(f32),
 }
 
+pub enum VerticalSpacing {
+    Relative(f32),
+    Absolute(f32),
+}
+
 impl DrawState<'_> {
     const DEFAULT_VERTICAL_SPACING: f32 = 1.5;
     const DEFAULT_SPACING_BEFORE: f32 = 20.;
     const DEFAULT_SPACING_AFTER: f32 = 20.;
+    const DEFAULT_LINE_SPACING: f32 = 1.5;
     const PAGE_SPACE_BETWEEN: f32 = 100.;
     const DEFAULT_FONT_SIZE: f32 = 12.;
 
@@ -130,9 +136,27 @@ impl DrawState<'_> {
 
             self.create_words_prims(&mut words, &mut document_draw, paragraph_tp, &ctx)?;
 
-            let lines = get_lines(words, &ctx, Self::DEFAULT_VERTICAL_SPACING * ctx.scale);
+            let lines = get_lines(&words, &ctx, Self::DEFAULT_VERTICAL_SPACING * ctx.scale);
 
-            for line in lines.iter() {}
+            for line in &lines {
+                let (vertical_offset, vertical_space) = get_line_vertical_metrics(
+                    properties.justify.clone(),
+                    &ctx,
+                    line,
+                    Self::DEFAULT_VERTICAL_SPACING,
+                );
+
+                update_line(&mut words, line, &ctx, vertical_offset, vertical_space);
+
+                let delta = line.height
+                    + line.last_scale
+                        * properties
+                            .spacing
+                            .line
+                            .unwrap_or(Self::DEFAULT_VERTICAL_SPACING);
+
+                self.vertical_offset(&mut ctx, &mut document_draw, delta);
+            }
 
             let delta = properties
                 .spacing
@@ -278,22 +302,97 @@ impl DrawState<'_> {
     }
 }
 
-fn get_lines(words: Vec<Word>, ctx: &Context, vertical_space: f32) -> Vec<Line> {
+fn get_line_vertical_metrics(
+    justification: Option<docx_document::Justification>,
+    ctx: &Context,
+    line: &Line,
+    vertical_space: f32,
+) -> (f32, VerticalSpacing) {
+    use VerticalSpacing::*;
+    match justification {
+        Some(docx_document::Justification::Start) | None => (0f32, Relative(vertical_space)),
+        Some(docx_document::Justification::Width) => (
+            0f32,
+            Absolute((ctx.page_content_rect.width() - line.min_width) / line.range.len() as f32),
+        ),
+        Some(docx_document::Justification::Center) => (
+            (ctx.page_content_rect.width() - line.widht_with_spacing) / 2.,
+            Relative(vertical_space),
+        ),
+        Some(docx_document::Justification::End) => (
+            ctx.page_content_rect.width() - line.widht_with_spacing,
+            Relative(vertical_space),
+        ),
+    }
+}
+
+fn update_line(
+    words: &mut [Word],
+    line: &Line,
+    ctx: &Context,
+    mut vertical_offset: f32,
+    vertical_space: VerticalSpacing,
+) {
+    let mut last_scale = 1f32;
+    for word in &mut words[line.range.clone()] {
+        let mut prev_glyph = None;
+        for glyphs_view in &mut word.glyphs_views {
+            let math::Size { width, height } = glyphs_view.primitive.get_rect().size();
+
+            let end = glyphs_view.word_range.end;
+            let start = glyphs_view.word_range.start;
+            let fst_char = word.word[start..=start].chars().next().unwrap_or_default();
+            let last_char = word.word[(end-1)..end].chars().next().unwrap_or_default();
+
+            if let PrimitiveProperties::PlainText(PlainTextProperties {
+                left_top,
+                font,
+                scale,
+                ..
+            }) = &mut glyphs_view.primitive.prop
+            {
+                *left_top = ctx.page_content_rect.left_top;
+
+                if let Some(prev) = prev_glyph {
+                    vertical_offset +=
+                        font.pair_kerning(rusttype::Scale::uniform(*scale), prev, fst_char);
+                }
+                left_top.x += vertical_offset;
+                left_top.y += line.height - height;
+                vertical_offset += width;
+
+                prev_glyph = Some(last_char);
+                last_scale = *scale;
+            }
+        }
+        match vertical_space {
+            VerticalSpacing::Relative(vs) => vertical_offset += vs * last_scale,
+            VerticalSpacing::Absolute(vs) => vertical_offset += vs,
+        };
+    }
+}
+
+fn get_lines(words: &[Word], ctx: &Context, vertical_space: f32) -> Vec<Line> {
     let mut lines = Vec::new();
     let mut curr_line = Line {
         height: 0.,
         min_width: 0.,
+        widht_with_spacing: 0.,
+        last_scale: 0.,
         range: 0..0,
     };
     for word in words.iter() {
-        let (widht, height) = get_words_sizes(word);
-        if curr_line.min_width + widht + vertical_space > ctx.page_content_rect.width() {
+        let (widht, height, last_scale) = get_words_sizes(word);
+        if curr_line.min_width + widht + vertical_space * last_scale > ctx.page_content_rect.width()
+        {
             let end = curr_line.range.end;
             lines.push(curr_line);
 
             curr_line = Line {
                 height,
                 min_width: widht,
+                widht_with_spacing: widht + vertical_space * last_scale,
+                last_scale,
                 range: end..(end + 1),
             };
             continue;
@@ -301,24 +400,32 @@ fn get_lines(words: Vec<Word>, ctx: &Context, vertical_space: f32) -> Vec<Line> 
 
         curr_line.min_width += widht;
         curr_line.height = curr_line.height.max(height);
+        curr_line.widht_with_spacing += widht + vertical_space * last_scale;
+        curr_line.last_scale = last_scale;
         curr_line.range.end += 1;
     }
     lines
 }
 
-fn get_words_sizes(word: &Word) -> (f32, f32) {
-    let (widht, height) =
-        word.glyphs_views
-            .iter()
-            .fold((0., 0.), |(acc_width, acc_height), glyphs| {
-                let math::Size { width, height } = glyphs.primitive.get_rect().size();
-                (acc_width + width, height.max(acc_height))
-            });
-    (widht, height)
+fn get_words_sizes(word: &Word) -> (f32, f32, f32) {
+    let (widht, height, last_scale) = word.glyphs_views.iter().fold(
+        (0., 0., 0.),
+        |(acc_width, acc_height, _last_scale), glyphs| {
+            let math::Size { width, height } = glyphs.primitive.get_rect().size();
+            (
+                acc_width + width,
+                height.max(acc_height),
+                glyphs.primitive.get_scale(),
+            )
+        },
+    );
+    (widht, height, last_scale)
 }
 struct Line {
     height: f32,
     min_width: f32,
+    widht_with_spacing: f32,
+    last_scale: f32,
     range: Range<usize>,
 }
 
@@ -425,7 +532,7 @@ impl DocumentDraw {
         }
     }
 
-    pub fn prims(& self) -> PrimIter<'_> {
+    pub fn prims(&self) -> PrimIter<'_> {
         PrimIter {
             document: self,
             state: PrimIterState::Pages(0),
