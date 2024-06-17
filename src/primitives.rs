@@ -1,3 +1,4 @@
+use glam::u32;
 use wgpu::util::DeviceExt;
 
 use crate::{docx_document::Color, draw::DrawState, math, uniforms::Uniforms2d};
@@ -76,6 +77,11 @@ impl DrawState<'_> {
     ) {
         match &primitive.wgpu {
             PrimitiveWgpu::Rect { bindgroup, .. } => {
+                log::info!(
+                    "( draw rect )\n{:?}",
+                    primitive.get_rect().get_point_and_size()
+                );
+
                 rpass.push_debug_group("Draw Rect Primitive");
 
                 rpass.set_pipeline(&self.fill_pipeline.pipeline);
@@ -86,6 +92,11 @@ impl DrawState<'_> {
                 rpass.pop_debug_group();
             }
             PrimitiveWgpu::Text { bindgroup, .. } => {
+                log::info!(
+                    "( draw text )\n{:?}",
+                    primitive.get_rect().get_point_and_size()
+                );
+
                 rpass.push_debug_group("Draw Plain Text Primitive");
 
                 rpass.set_pipeline(&self.text_pipeline.pipeline);
@@ -138,15 +149,15 @@ impl DrawState<'_> {
         let uniform = self.calc_rect_uniform(math::Rectangle::new(prop.left_top, size), prop.color);
 
         let extent = wgpu::Extent3d {
-            width: size.0 as u32,
-            height: size.1 as u32,
+            width: size.0.round() as u32,
+            height: size.1.round() as u32,
             depth_or_array_layers: 1,
         };
         let mut texels = vec![0u8; (extent.width * extent.height) as usize];
         for glyph in glyphs {
             if let Some(bounding_box) = glyph.pixel_bounding_box() {
                 glyph.draw(|x, y, v| {
-                    let x = x + bounding_box.min.x as u32;
+                    let x = (x as i32 + bounding_box.min.x) as u32;
                     let y = extent.height - (y + bounding_box.min.y as u32);
                     if let Some(pxl) =
                         texels.get_mut(x as usize + y as usize * extent.width as usize)

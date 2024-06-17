@@ -16,7 +16,9 @@ pub struct DocumentDraw {
     pub scroll: f32,
     pub scale: f32,
     pub pages: Vec<Page>,
+    pub bg_color: Color,
 }
+
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct FontIdx {
@@ -32,7 +34,18 @@ pub struct Page {
 
 #[derive(Debug)]
 pub struct Paragraph {
+    pub properties: docx_document::ParagraphProperties,
     pub words: Vec<Word>,
+    pub lines: Vec<Line>,
+}
+
+#[derive(Debug)]
+pub struct Line {
+    height: f32,
+    min_width: f32,
+    widht_with_spacing: f32,
+    last_scale: f32,
+    range: Range<usize>,
 }
 
 #[derive(Debug, Default)]
@@ -55,7 +68,6 @@ struct Context {
     bg_color: docx_document::Color,
     page_rect: math::Rectangle,
     v_width: f32,
-    scroll: f32,
     scale: f32,
 }
 
@@ -72,10 +84,10 @@ pub enum VerticalSpacing {
 }
 
 impl DrawState<'_> {
-    const DEFAULT_VERTICAL_SPACING: f32 = 1.5;
+    const DEFAULT_VERTICAL_SPACING: f32 = 1.0;
     const DEFAULT_SPACING_BEFORE: f32 = 20.;
     const DEFAULT_SPACING_AFTER: f32 = 20.;
-    const DEFAULT_LINE_SPACING: f32 = 1.5;
+    const DEFAULT_LINE_SPACING: f32 = 1.0;
     const PAGE_SPACE_BETWEEN: f32 = 100.;
     const DEFAULT_FONT_SIZE: f32 = 12.;
 
@@ -87,7 +99,7 @@ impl DrawState<'_> {
         let mut document_draw = DocumentDraw::default();
 
         let page_properties = PageProperties::from(document.get_properties());
-        let (v_width, v_height) = (self.config.width as f32, self.config.height as f32);
+        let (v_width, _v_height) = (self.config.width as f32, self.config.height as f32);
 
         let bg_color = colorscheme.page_bg_color;
 
@@ -106,11 +118,13 @@ impl DrawState<'_> {
             bg_color,
             page_rect,
             v_width,
-            scroll,
             scale,
         };
 
+        log::info!("page rect {page_rect:?}, page content rect {page_content_rect:?}");
+
         document_draw.pages = vec![first_page];
+        document_draw.bg_color = bg_color;
 
         let Some(nodes) = &Arc::clone(&document).content.nodes else {
             return Ok(document_draw);
@@ -128,17 +142,26 @@ impl DrawState<'_> {
             let delta = properties
                 .spacing
                 .before
-                .unwrap_or(Self::DEFAULT_SPACING_BEFORE * ctx.scale);
+                .unwrap_or(Self::DEFAULT_SPACING_BEFORE)
+                * ctx.scale;
 
-            self.vertical_offset(&mut ctx, &mut document_draw, delta);
+            self.vertical_offset_and_push(&mut ctx, &mut document_draw.pages, delta);
 
             let mut words = get_words(texts);
 
             self.create_words_prims(&mut words, &mut document_draw, paragraph_tp, &ctx)?;
+            log::info!(
+                "words {:?}",
+                words
+                    .iter()
+                    .map(|word| word.word.clone())
+                    .collect::<Vec<_>>()
+            );
 
             let lines = get_lines(&words, &ctx, Self::DEFAULT_VERTICAL_SPACING * ctx.scale);
 
             for line in &lines {
+                log::info!("line {line:?}");
                 let (vertical_offset, vertical_space) = get_line_vertical_metrics(
                     properties.justify.clone(),
                     &ctx,
@@ -148,31 +171,39 @@ impl DrawState<'_> {
 
                 update_line(&mut words, line, &ctx, vertical_offset, vertical_space);
 
-                let delta = line.height
+                let delta = (line.height
                     + line.last_scale
                         * properties
                             .spacing
                             .line
-                            .unwrap_or(Self::DEFAULT_VERTICAL_SPACING);
+                            .unwrap_or(Self::DEFAULT_LINE_SPACING))
+                    * ctx.scale;
 
-                self.vertical_offset(&mut ctx, &mut document_draw, delta);
+                self.vertical_offset_and_push(&mut ctx, &mut document_draw.pages, delta);
             }
+
+            document_draw.paragraphes.push(Paragraph {
+                words,
+                lines,
+                properties: properties.clone(),
+            });
 
             let delta = properties
                 .spacing
                 .after
-                .unwrap_or(Self::DEFAULT_SPACING_AFTER * ctx.scale);
+                .unwrap_or(Self::DEFAULT_SPACING_AFTER)
+                * ctx.scale;
 
-            self.vertical_offset(&mut ctx, &mut document_draw, delta);
+            self.vertical_offset_and_push(&mut ctx, &mut document_draw.pages, delta);
         }
 
         Ok(document_draw)
     }
 
-    fn create_words_prims(
+    fn create_words_prims<T: GetOrLoadFont>(
         &self,
         words: &mut [Word],
-        document_draw: &mut DocumentDraw,
+        fonts_collection: &mut T,
         paragraph_tp: TextProperties,
         ctx: &Context,
     ) -> Result<(), anyhow::Error> {
@@ -180,16 +211,16 @@ impl DrawState<'_> {
             for glyphs_view in word.glyphs_views.iter_mut() {
                 let content = word.word[glyphs_view.word_range.clone()].to_string();
 
-                let font = document_draw.get_or_load_font(glyphs_view.properties.get_font_idx())?;
+                let font =
+                    fonts_collection.get_or_load_font(glyphs_view.properties.get_font_idx())?;
 
                 let color = glyphs_view
                     .properties
                     .color
                     .unwrap_or(paragraph_tp.color.unwrap_or(Color::BLACK));
 
-                let left_top = (0., 0.).into();
-
                 let scale = ctx.scale
+                    * 2.
                     * glyphs_view
                         .properties
                         .size
@@ -203,23 +234,22 @@ impl DrawState<'_> {
                                 .unwrap_or(Self::DEFAULT_FONT_SIZE),
                         );
 
-                glyphs_view.primitive = self.new_prim(PlainTextProperties {
-                    left_top,
+                glyphs_view.primitive = self.new_prim(PlainTextProperties::new(
+                    ((0., 0.), (0., scale)),
+                    color,
                     content,
                     font,
-                    color,
-                    scale,
-                });
+                ));
             }
         }
         Ok(())
     }
 
-    fn vertical_offset(&self, ctx: &mut Context, document_draw: &mut DocumentDraw, delta: f32) {
+    fn vertical_offset_and_push(&self, ctx: &mut Context, pages: &mut Vec<Page>, delta: f32) {
         if delta < ctx.page_content_rect.height() {
             ctx.page_content_rect = ctx.page_content_rect.move_left_top((0., delta));
         } else {
-            let offset = ctx.scroll + ctx.page_rect.right_bottom.y + Self::PAGE_SPACE_BETWEEN;
+            let offset = ctx.page_rect.right_bottom.y + Self::PAGE_SPACE_BETWEEN * ctx.scale;
             let new_page = self.new_page_with_offset(
                 &ctx.page_properties,
                 ctx.v_width,
@@ -231,12 +261,98 @@ impl DrawState<'_> {
             ctx.page_rect = new_page.primitive.get_rect();
             ctx.page_content_rect = ctx.page_rect.add_paddings(ctx.page_properties.paddings);
 
-            document_draw.pages.push(new_page);
+            pages.push(new_page);
         }
     }
 
-    pub fn update_document(&self, document_draw: &mut DocumentDraw) {
-        document_draw.for_prims_mut(|prim| self.update_prim(prim.prop.clone(), prim));
+    pub fn update_document(&self, document_draw: &mut DocumentDraw) -> anyhow::Result<()> {
+        let first_page = document_draw.pages.first().unwrap();
+        let page_properties = first_page.page_properties.clone();
+        let (v_width, _v_height) = (self.config.width as f32, self.config.height as f32);
+
+        let bg_color = document_draw.bg_color;
+
+        let scroll = document_draw.scroll;
+        let scale = document_draw.scale;
+
+        let first_page =
+            self.new_page_with_offset(&page_properties, v_width, bg_color, scroll, scale);
+
+        let page_rect = first_page.primitive.get_rect();
+        let page_content_rect = page_rect.add_paddings(page_properties.paddings);
+
+        document_draw.pages = vec![first_page];
+
+        let mut ctx = Context {
+            page_content_rect,
+            page_properties,
+            bg_color,
+            page_rect,
+            v_width,
+            scale,
+        };
+
+        let paragraphs_len = document_draw.paragraphes.len();
+        for (idx, paragraph) in document_draw.paragraphes.iter_mut().enumerate() {
+            let properties = paragraph.properties.clone();
+
+            if idx != 0 {
+                let delta = properties
+                    .spacing
+                    .before
+                    .unwrap_or(Self::DEFAULT_SPACING_BEFORE)
+                    * ctx.scale;
+
+                self.vertical_offset_and_push(&mut ctx, &mut document_draw.pages, delta);
+            }
+
+            log::info!("{:?}", paragraph.lines);
+            for (idx, line) in paragraph.lines.iter().enumerate() {
+                log::info!("{:?}", ctx.page_content_rect);
+
+                let (vertical_offset, vertical_space) = get_line_vertical_metrics(
+                    properties.justify.clone(),
+                    &ctx,
+                    line,
+                    Self::DEFAULT_VERTICAL_SPACING,
+                );
+
+                update_line(
+                    &mut paragraph.words,
+                    line,
+                    &ctx,
+                    vertical_offset,
+                    vertical_space,
+                );
+
+                if idx != paragraph.lines.len() - 1 {
+                    let delta = properties
+                        .spacing
+                        .line
+                        .map(|sp| sp * ctx.scale)
+                        .unwrap_or(Self::DEFAULT_LINE_SPACING * line.height);
+
+                    println!("DELTA {:?}", delta);
+                    self.vertical_offset_and_push(&mut ctx, &mut document_draw.pages, delta);
+                }
+            }
+
+            if idx != paragraphs_len - 1 {
+                let delta = properties
+                    .spacing
+                    .after
+                    .unwrap_or(Self::DEFAULT_SPACING_AFTER)
+                    * ctx.scale;
+
+                self.vertical_offset_and_push(&mut ctx, &mut document_draw.pages, delta);
+            }
+        }
+
+        document_draw.for_prims_mut(|prim| {
+            let prop = prim.prop.clone();
+            self.update_prim(prop, prim);
+        });
+        Ok(())
     }
 
     pub fn process_document_command(
@@ -246,30 +362,22 @@ impl DrawState<'_> {
     ) {
         match command {
             DocumentCommand::NewScroll(new_scroll) => {
-                let scroll = new_scroll - document_draw.scroll;
-                self.delta_scroll(document_draw, scroll);
+                document_draw.scroll = new_scroll;
             }
             DocumentCommand::NewScale(scale) => {
-                let scale = scale / document_draw.scale;
-                self.ratio_scroll(document_draw, scale);
+                let scale = scale.max(0.1).min(2.);
+                let ratio = scale / document_draw.scale;
+                self.scale_by_ratio(document_draw, ratio);
+                document_draw.scale = scale.max(0.1).min(2.);
             }
-            DocumentCommand::DeltaScroll(delta) => self.delta_scroll(document_draw, delta),
-            DocumentCommand::RatioScale(ratio) => self.ratio_scroll(document_draw, ratio),
+            DocumentCommand::DeltaScroll(delta) => document_draw.scroll += delta,
+            DocumentCommand::RatioScale(ratio) => {
+                let prev = document_draw.scale;
+                document_draw.scale = (document_draw.scale * ratio).max(0.1).min(2.);
+                let ratio = document_draw.scale / prev;
+                self.scale_by_ratio(document_draw, ratio);
+            }
         }
-    }
-
-    fn ratio_scroll(&self, document_draw: &mut DocumentDraw, scale: f32) {
-        document_draw.for_prims_mut(|prim| {
-            let new_prop = prim.prop.clone().scale(scale);
-            self.update_prim(new_prop, prim);
-        })
-    }
-
-    fn delta_scroll(&self, document_draw: &mut DocumentDraw, scroll: f32) {
-        document_draw.for_prims_mut(|prim| {
-            let new_prop = prim.prop.clone().scroll(scroll);
-            self.update_prim(new_prop, prim);
-        })
     }
 
     pub fn draw_document_draw<'a, 'b: 'a>(
@@ -277,9 +385,7 @@ impl DrawState<'_> {
         rpass: &mut wgpu::RenderPass<'a>,
         document: &'a DocumentDraw,
     ) {
-        document
-            .prims()
-            .for_each(|prim| self.draw_prim(rpass, prim));
+        document.for_prims(|prim| self.draw_prim(rpass, prim));
     }
 
     fn new_page_with_offset(
@@ -302,6 +408,24 @@ impl DrawState<'_> {
     }
 }
 
+impl DrawState<'_> {
+    fn scale_by_ratio(&self, document_draw: &mut DocumentDraw, ratio: f32) {
+        document_draw.paragraphes.iter_mut().for_each(|par| {
+            par.words.iter_mut().for_each(|word| {
+                word.glyphs_views.iter_mut().for_each(|gv| {
+                    let prop = gv.primitive.prop.clone().scale(ratio);
+                    self.update_prim(prop, &mut gv.primitive);
+                })
+            });
+            par.lines.iter_mut().for_each(|line| {
+                line.widht_with_spacing /= ratio;
+                line.min_width /= ratio;
+                line.height /= ratio;
+                line.last_scale /= ratio;
+            })
+        });
+    }
+}
 fn get_line_vertical_metrics(
     justification: Option<docx_document::Justification>,
     ctx: &Context,
@@ -342,7 +466,7 @@ fn update_line(
             let end = glyphs_view.word_range.end;
             let start = glyphs_view.word_range.start;
             let fst_char = word.word[start..=start].chars().next().unwrap_or_default();
-            let last_char = word.word[(end-1)..end].chars().next().unwrap_or_default();
+            let last_char = word.word[(end - 1)..end].chars().next().unwrap_or_default();
 
             if let PrimitiveProperties::PlainText(PlainTextProperties {
                 left_top,
@@ -355,10 +479,11 @@ fn update_line(
 
                 if let Some(prev) = prev_glyph {
                     vertical_offset +=
-                        font.pair_kerning(rusttype::Scale::uniform(*scale), prev, fst_char);
+                        font.pair_kerning(rusttype::Scale::uniform(*scale), prev, fst_char)
+                            * ctx.scale;
                 }
                 left_top.x += vertical_offset;
-                left_top.y += line.height - height;
+                left_top.y += (line.height - height) * ctx.scale;
                 vertical_offset += width;
 
                 prev_glyph = Some(last_char);
@@ -383,8 +508,7 @@ fn get_lines(words: &[Word], ctx: &Context, vertical_space: f32) -> Vec<Line> {
     };
     for word in words.iter() {
         let (widht, height, last_scale) = get_words_sizes(word);
-        if curr_line.min_width + widht + vertical_space * last_scale > ctx.page_content_rect.width()
-        {
+        if curr_line.widht_with_spacing + widht > ctx.page_content_rect.width() {
             let end = curr_line.range.end;
             lines.push(curr_line);
 
@@ -404,6 +528,7 @@ fn get_lines(words: &[Word], ctx: &Context, vertical_space: f32) -> Vec<Line> {
         curr_line.last_scale = last_scale;
         curr_line.range.end += 1;
     }
+    lines.push(curr_line);
     lines
 }
 
@@ -420,13 +545,6 @@ fn get_words_sizes(word: &Word) -> (f32, f32, f32) {
         },
     );
     (widht, height, last_scale)
-}
-struct Line {
-    height: f32,
-    min_width: f32,
-    widht_with_spacing: f32,
-    last_scale: f32,
-    range: Range<usize>,
 }
 
 enum WordState {
@@ -516,8 +634,32 @@ impl Word {
     }
 }
 
-impl DocumentDraw {
-    pub fn get_or_load_font(
+pub trait GetOrLoadFont {
+    fn get_or_load_font(
+        &mut self,
+        idx: impl Into<FontIdx>,
+    ) -> anyhow::Result<rusttype::Font<'static>>;
+}
+
+impl GetOrLoadFont for HashMap<FontIdx, rusttype::Font<'static>> {
+    fn get_or_load_font(
+        &mut self,
+        idx: impl Into<FontIdx>,
+    ) -> anyhow::Result<rusttype::Font<'static>> {
+        let idx = idx.into();
+
+        if let Some(font) = self.get(&idx) {
+            Ok(font.clone())
+        } else {
+            let font = font::find_font(idx.name.as_str(), Some(idx.mode.as_str()))?;
+            self.insert(idx, font.clone());
+            Ok(font)
+        }
+    }
+}
+
+impl GetOrLoadFont for DocumentDraw {
+    fn get_or_load_font(
         &mut self,
         idx: impl Into<FontIdx>,
     ) -> anyhow::Result<rusttype::Font<'static>> {
@@ -531,7 +673,9 @@ impl DocumentDraw {
             Ok(font)
         }
     }
+}
 
+impl DocumentDraw {
     pub fn prims(&self) -> PrimIter<'_> {
         PrimIter {
             document: self,
@@ -539,12 +683,34 @@ impl DocumentDraw {
         }
     }
 
+    pub fn for_prims<'document>(&'document self, mut f: impl FnMut(&'document Primitive)) {
+        for page in &self.pages {
+            f(&page.primitive)
+        }
+
+        for par in &self.paragraphes {
+            for word in &par.words {
+                for glyphs_view in &word.glyphs_views {
+                    f(&glyphs_view.primitive)
+                }
+            }
+        }
+    }
+
     pub fn for_prims_mut<'document>(
         &'document mut self,
         mut f: impl FnMut(&'document mut Primitive),
     ) {
-        for page in self.pages.iter_mut() {
+        for page in &mut self.pages {
             f(&mut page.primitive)
+        }
+
+        for par in &mut self.paragraphes {
+            for word in &mut par.words {
+                for glyphs_view in &mut word.glyphs_views {
+                    f(&mut glyphs_view.primitive)
+                }
+            }
         }
     }
 }
@@ -611,6 +777,7 @@ impl Default for DocumentDraw {
             paragraphes: Default::default(),
             fonts: Default::default(),
             scroll: 100.,
+            bg_color: Color::BLACK,
             scale: 0.5,
         }
     }

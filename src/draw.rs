@@ -55,17 +55,20 @@ impl App<'_> {
             )?))
         }
 
+        log::info!("\n-- UPDATE STATE --\n");
         if let Some(document_draw) = self.document_draw.as_mut() {
-            draw_state.update_document(document_draw);
             while let Some(command) = self.document_commands.pop() {
                 draw_state.process_document_command(document_draw, command);
             }
+            draw_state.update_document(document_draw)?;
         }
+        log::info!("\n##END UPDATE STATE##\n");
 
         let mut encoder = draw_state
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
+            log::info!("\n-- DRAW STATE --\n");
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -82,10 +85,13 @@ impl App<'_> {
             });
 
             if let Some(document_draw) = self.document_draw.as_ref() {
+                log::info!("\nDRAW DOCUMENT\n");
                 draw_state.draw_document_draw(&mut rpass, document_draw);
             }
 
+            log::info!("\nDRAW UI\n");
             draw_state.draw_ui(&mut self.ui_primitives, &state_copy, &mut rpass);
+            log::info!("\n##END DRAW STATE##\n");
         }
 
         draw_state.queue.submit(Some(encoder.finish()));
