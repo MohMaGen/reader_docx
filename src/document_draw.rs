@@ -17,8 +17,16 @@ pub struct DocumentDraw {
     pub scale: f32,
     pub pages: Vec<Page>,
     pub bg_color: Color,
+    pub cursor: Cursor,
 }
 
+#[derive(Debug, Default)]
+pub enum Cursor {
+    #[default]
+    Normal,
+    Edit,
+    Select,
+}
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct FontIdx {
@@ -773,12 +781,13 @@ impl Default for PageProperties {
 impl Default for DocumentDraw {
     fn default() -> Self {
         Self {
-            pages: Default::default(),
-            paragraphes: Default::default(),
-            fonts: Default::default(),
             scroll: 100.,
             bg_color: Color::BLACK,
             scale: 0.5,
+            cursor: Default::default(),
+            pages: Default::default(),
+            paragraphes: Default::default(),
+            fonts: Default::default(),
         }
     }
 }
