@@ -20,12 +20,19 @@ pub struct DocumentDraw {
     pub cursor: Cursor,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub enum Cursor {
-    #[default]
-    Normal,
-    Edit,
-    Select,
+    View(CurosrPos),
+    Normal(CurosrPos),
+    Edit(CurosrPos),
+    Select { start: CurosrPos, end: CurosrPos },
+}
+
+#[derive(Debug, Default)]
+pub struct CurosrPos {
+    pub par: usize,
+    pub line: usize,
+    pub char: usize,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
@@ -784,7 +791,7 @@ impl Default for DocumentDraw {
             scroll: 100.,
             bg_color: Color::BLACK,
             scale: 0.5,
-            cursor: Default::default(),
+            cursor: Cursor::Normal(Default::default()),
             pages: Default::default(),
             paragraphes: Default::default(),
             fonts: Default::default(),
