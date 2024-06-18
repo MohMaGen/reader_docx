@@ -187,7 +187,7 @@ impl DrawState<'_> {
             self.new_page_with_offset(&page_properties, v_width, bg_color, scroll, scale);
 
         let page_rect = first_page.primitive.get_rect();
-        let page_content_rect = page_rect.add_paddings(page_properties.paddings);
+        let page_content_rect = page_rect.add_paddings(page_properties.paddings * scale);
 
         document_draw.pages = vec![first_page];
         document_draw.cursor_prims = Vec::new();
@@ -214,11 +214,7 @@ impl DrawState<'_> {
 
                 self.vertical_offset_and_push(&mut ctx, &mut document_draw.pages, delta);
             }
-            paragraph.lines = get_lines(
-                &paragraph.words,
-                &ctx,
-                Self::DEFAULT_VERTICAL_SPACING * ctx.scale,
-            );
+            paragraph.lines = get_lines(&paragraph.words, &ctx, Self::DEFAULT_VERTICAL_SPACING);
 
             log::info!("{:?}", paragraph.lines);
             for (line_idx, line) in paragraph.lines.iter().enumerate() {
@@ -279,6 +275,43 @@ impl DrawState<'_> {
         Ok(())
     }
 
+    pub fn process_document_command(
+        &self,
+        document_draw: &mut DocumentDraw,
+        command: DocumentCommand,
+    ) {
+        match command {
+            DocumentCommand::NewScroll(new_scroll) => {
+                document_draw.scroll = new_scroll;
+            }
+            DocumentCommand::NewScale(scale) => {
+                let scale = scale.max(0.1).min(2.);
+                let ratio = scale / document_draw.scale;
+                self.scale_by_ratio(document_draw, ratio);
+                document_draw.scale = scale.max(0.1).min(2.);
+            }
+            DocumentCommand::DeltaScroll(delta) => document_draw.scroll += delta,
+            DocumentCommand::RatioScale(ratio) => {
+                let prev = document_draw.scale;
+                document_draw.scale = (document_draw.scale * ratio).max(0.1).min(2.);
+                let ratio = document_draw.scale / prev;
+                self.scale_by_ratio(document_draw, ratio);
+            }
+            DocumentCommand::ChangeCharIdx(char_delta) => document_draw.change_char(char_delta),
+            DocumentCommand::ChangeLineIdx(line_delta) => document_draw.change_line(line_delta),
+        }
+    }
+
+    pub fn draw_document_draw<'a, 'b: 'a>(
+        &'b self,
+        rpass: &mut wgpu::RenderPass<'a>,
+        document: &'a DocumentDraw,
+    ) {
+        document.for_prims(|prim| self.draw_prim(rpass, prim));
+    }
+}
+
+impl DrawState<'_> {
     fn update_cursor(
         &self,
         selection_color: &Color,
@@ -332,43 +365,6 @@ impl DrawState<'_> {
         }
     }
 
-    pub fn process_document_command(
-        &self,
-        document_draw: &mut DocumentDraw,
-        command: DocumentCommand,
-    ) {
-        match command {
-            DocumentCommand::NewScroll(new_scroll) => {
-                document_draw.scroll = new_scroll;
-            }
-            DocumentCommand::NewScale(scale) => {
-                let scale = scale.max(0.1).min(2.);
-                let ratio = scale / document_draw.scale;
-                self.scale_by_ratio(document_draw, ratio);
-                document_draw.scale = scale.max(0.1).min(2.);
-            }
-            DocumentCommand::DeltaScroll(delta) => document_draw.scroll += delta,
-            DocumentCommand::RatioScale(ratio) => {
-                let prev = document_draw.scale;
-                document_draw.scale = (document_draw.scale * ratio).max(0.1).min(2.);
-                let ratio = document_draw.scale / prev;
-                self.scale_by_ratio(document_draw, ratio);
-            }
-            DocumentCommand::ChangeCharIdx(char_delta) => document_draw.change_char(char_delta),
-            DocumentCommand::ChangeLineIdx(line_delta) => document_draw.change_line(line_delta),
-        }
-    }
-
-    pub fn draw_document_draw<'a, 'b: 'a>(
-        &'b self,
-        rpass: &mut wgpu::RenderPass<'a>,
-        document: &'a DocumentDraw,
-    ) {
-        document.for_prims(|prim| self.draw_prim(rpass, prim));
-    }
-}
-
-impl DrawState<'_> {
     fn create_words_prims<T: GetOrLoadFont>(
         &self,
         words: &mut [Word],
