@@ -481,15 +481,36 @@ fn get_cursor_rect(
     ctx: &Context,
 ) -> math::Rectangle {
     let mut curr = 0;
+    let mut prev_x = None;
     for word in &paragraph.words[line.range.clone()] {
+        if let Some(prev_x) = prev_x {
+            return (
+                (prev_x, ctx.page_content_rect.y()),
+                (
+                    word.glyphs_views
+                        .first()
+                        .map(|glyph| glyph.primitive.get_rect().x())
+                        .unwrap_or(ctx.page_content_rect.right_bottom.x),
+                    ctx.page_content_rect.y() + line.height,
+                ),
+            )
+                .into();
+        }
+
         let graphemes = word.word.grapheme_indices(true).collect::<Vec<_>>();
         let len = graphemes.len();
 
         if curr + len < char_idx {
-            curr += len;
+            curr += len + 1;
             continue;
         } else if curr + len == char_idx {
             curr += len;
+            prev_x = Some(
+                word.glyphs_views
+                    .last()
+                    .map(|glyph| glyph.primitive.get_rect().right_bottom.x)
+                    .unwrap_or(ctx.page_content_rect.x()),
+            );
             continue;
         }
 
