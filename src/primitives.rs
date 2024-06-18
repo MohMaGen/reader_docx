@@ -1,4 +1,5 @@
 use glam::u32;
+use rusttype::PositionedGlyph;
 use wgpu::util::DeviceExt;
 
 use crate::{docx_document::Color, draw::DrawState, math, uniforms::Uniforms2d};
@@ -43,6 +44,7 @@ pub enum PrimitiveWgpu {
         texture: wgpu::Texture,
         extent: wgpu::Extent3d,
         bindgroup: wgpu::BindGroup,
+        glyphs: Vec<PositionedGlyph<'static>>,
     },
     #[default]
     Empty,
@@ -154,7 +156,7 @@ impl DrawState<'_> {
             depth_or_array_layers: 1,
         };
         let mut texels = vec![0u8; (extent.width * extent.height) as usize];
-        for glyph in glyphs {
+        for glyph in &glyphs {
             if let Some(bounding_box) = glyph.pixel_bounding_box() {
                 glyph.draw(|x, y, v| {
                     let x = (x as i32 + bounding_box.min.x) as u32;
@@ -236,6 +238,7 @@ impl DrawState<'_> {
                 texture,
                 extent,
                 bindgroup,
+                glyphs,
             },
         }
     }
@@ -424,6 +427,13 @@ impl Primitive {
                 wgpu: PrimitiveWgpu::Text { extent, .. },
             } => math::Rectangle::new(*left_top, (extent.width as f32, extent.height as f32)),
             _ => Default::default(),
+        }
+    }
+
+    pub fn get_glyphs(&self) -> Option<&[PositionedGlyph]> {
+        match &self.wgpu {
+            PrimitiveWgpu::Text { glyphs, .. } => Some(&glyphs),
+            _ => None,
         }
     }
 }

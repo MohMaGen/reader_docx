@@ -12,7 +12,7 @@ use winit::{
 };
 
 use crate::{
-    document_draw::{DocumentCommand, DocumentDraw},
+    document_draw::{CursorPos, DocumentCommand},
     docx_document::DocxDocument,
     log_helper::LogHelper,
     state::{self, Mode, State},
@@ -22,7 +22,7 @@ use crate::{
 pub fn keyboard_input(
     state: Arc<Mutex<State>>,
     event: winit::event::KeyEvent,
-    document_draw: &mut Vec<DocumentCommand>,
+    document_commands: &mut Vec<DocumentCommand>,
 ) -> anyhow::Result<()> {
     if event.repeat {
         return Ok(());
@@ -39,17 +39,22 @@ pub fn keyboard_input(
                 return Ok(());
             }
 
-            scale(&event, document_draw);
-            scroll(&event, document_draw);
+            scale(&event, document_commands);
+            scroll(&event, document_commands);
         }
-        Mode::Command => match event.text {
-            Some(s) if s == ":" => {
-                let mut state = state.lock().to_anyhow()?;
-                state.mode = Mode::CommandInput;
-                state.console_input = ":".into();
+        Mode::Normal => {
+            if normal_movement(&event, document_commands) {
+                return Ok(());
             }
-            _ => {}
-        },
+            match event.text {
+                Some(s) if s == ":" => {
+                    let mut state = state.lock().to_anyhow()?;
+                    state.mode = Mode::CommandInput;
+                    state.console_input = ":".into();
+                }
+                _ => {}
+            }
+        }
 
         Mode::CommandInput => {
             if command_mode_on_escape(&event, Arc::clone(&state))? {
@@ -67,6 +72,31 @@ pub fn keyboard_input(
     Ok(())
 }
 
+fn normal_movement(
+    event: &winit::event::KeyEvent,
+    document_commands: &mut Vec<DocumentCommand>,
+) -> bool {
+    match event.physical_key {
+        PhysicalKey::Code(KeyCode::KeyL) => {
+            document_commands.push(DocumentCommand::ChangeCharIdx(1));
+            true
+        }
+        PhysicalKey::Code(KeyCode::KeyH) => {
+            document_commands.push(DocumentCommand::ChangeCharIdx(-1));
+            true
+        }
+        PhysicalKey::Code(KeyCode::KeyJ) => {
+            document_commands.push(DocumentCommand::ChangeLineIdx(1));
+            true
+        }
+        PhysicalKey::Code(KeyCode::KeyK) => {
+            document_commands.push(DocumentCommand::ChangeLineIdx(-1));
+            true
+        }
+        _ => false,
+    }
+}
+
 fn process_command_enter(
     event: &winit::event::KeyEvent,
     state: Arc<Mutex<State>>,
@@ -74,7 +104,7 @@ fn process_command_enter(
     if let PhysicalKey::Code(KeyCode::Enter) = event.physical_key {
         let command = {
             let mut state = state.lock().to_anyhow()?;
-            state.mode = Mode::Command;
+            state.mode = Mode::Normal;
             let command = state.console_input.clone();
             state.console_input = String::new();
 
@@ -168,7 +198,7 @@ fn command_mode_on_escape(
         PhysicalKey::Code(KeyCode::Escape) => {
             {
                 let mut state = state.lock().to_anyhow()?;
-                state.mode = Mode::Command;
+                state.mode = Mode::Normal;
                 state.console_input = "".into();
             }
             true

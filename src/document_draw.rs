@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ops::Range, sync::Arc};
+use std::{cmp::Ordering, collections::HashMap, ops::Range, sync::Arc};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
@@ -11,28 +11,30 @@ use crate::{
 
 #[derive(Debug)]
 pub struct DocumentDraw {
-    pub paragraphes: Vec<Paragraph>,
+    pub paragraphs: Vec<Paragraph>,
     pub fonts: HashMap<FontIdx, rusttype::Font<'static>>,
     pub scroll: f32,
     pub scale: f32,
     pub pages: Vec<Page>,
     pub bg_color: Color,
+    pub selection_color: Color,
     pub cursor: Cursor,
+    pub cursor_prims: Vec<Primitive>,
 }
 
 #[derive(Debug)]
 pub enum Cursor {
-    View(CurosrPos),
-    Normal(CurosrPos),
-    Edit(CurosrPos),
-    Select { start: CurosrPos, end: CurosrPos },
+    View(CursorPos),
+    Normal(CursorPos),
+    Edit(CursorPos),
+    Select { start: CursorPos, end: CursorPos },
 }
 
 #[derive(Debug, Default)]
-pub struct CurosrPos {
-    pub par: usize,
-    pub line: usize,
-    pub char: usize,
+pub struct CursorPos {
+    pub par_idx: usize,
+    pub line_idx: usize,
+    pub char_idx: usize,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
@@ -91,6 +93,8 @@ pub enum DocumentCommand {
     DeltaScroll(f32),
     NewScale(f32),
     RatioScale(f32),
+    ChangeCharIdx(i64),
+    ChangeLineIdx(i64),
 }
 
 pub enum VerticalSpacing {
@@ -139,6 +143,7 @@ impl DrawState<'_> {
         log::info!("page rect {page_rect:?}, page content rect {page_content_rect:?}");
 
         document_draw.pages = vec![first_page];
+        document_draw.selection_color = colorscheme.selection_color;
         document_draw.bg_color = bg_color;
 
         let Some(nodes) = &Arc::clone(&document).content.nodes else {
@@ -197,7 +202,7 @@ impl DrawState<'_> {
                 self.vertical_offset_and_push(&mut ctx, &mut document_draw.pages, delta);
             }
 
-            document_draw.paragraphes.push(Paragraph {
+            document_draw.paragraphs.push(Paragraph {
                 words,
                 lines,
                 properties: properties.clone(),
@@ -297,6 +302,7 @@ impl DrawState<'_> {
         let page_content_rect = page_rect.add_paddings(page_properties.paddings);
 
         document_draw.pages = vec![first_page];
+        document_draw.cursor_prims = Vec::new();
 
         let mut ctx = Context {
             page_content_rect,
@@ -307,11 +313,11 @@ impl DrawState<'_> {
             scale,
         };
 
-        let paragraphs_len = document_draw.paragraphes.len();
-        for (idx, paragraph) in document_draw.paragraphes.iter_mut().enumerate() {
+        let paragraphs_len = document_draw.paragraphs.len();
+        for (par_idx, paragraph) in document_draw.paragraphs.iter_mut().enumerate() {
             let properties = paragraph.properties.clone();
 
-            if idx != 0 {
+            if par_idx != 0 {
                 let delta = properties
                     .spacing
                     .before
@@ -322,7 +328,7 @@ impl DrawState<'_> {
             }
 
             log::info!("{:?}", paragraph.lines);
-            for (idx, line) in paragraph.lines.iter().enumerate() {
+            for (line_idx, line) in paragraph.lines.iter().enumerate() {
                 log::info!("{:?}", ctx.page_content_rect);
 
                 let (vertical_offset, vertical_space) = get_line_vertical_metrics(
@@ -340,19 +346,62 @@ impl DrawState<'_> {
                     vertical_space,
                 );
 
-                if idx != paragraph.lines.len() - 1 {
+                match document_draw.cursor.match_par_line(par_idx, line_idx) {
+                    LineRelativePosition::Exact(pos) => {
+                        println!("AA");
+                        let rect = get_cursor_rect(paragraph, line, pos, &ctx);
+                        document_draw
+                            .cursor_prims
+                            .push(self.new_prim((rect, document_draw.selection_color)));
+                    }
+                    LineRelativePosition::ExactStart(start) => {
+                        let rect = get_cursor_rect(paragraph, line, start, &ctx);
+                        document_draw.cursor_prims.push(self.new_prim((
+                            math::Rectangle::new(
+                                (rect.x(), ctx.page_content_rect.y()),
+                                (
+                                    page_content_rect.right_bottom.x - rect.x(),
+                                    page_content_rect.right_bottom.x,
+                                ),
+                            ),
+                            document_draw.selection_color,
+                        )));
+                    }
+                    LineRelativePosition::ExactEnd(end) => {
+                        let rect = get_cursor_rect(paragraph, line, end, &ctx);
+                        document_draw.cursor_prims.push(self.new_prim((
+                            math::Rectangle::new(
+                                ctx.page_content_rect.left_top,
+                                (rect.x() - ctx.page_content_rect.left_top.x, line.height),
+                            ),
+                            document_draw.selection_color,
+                        )));
+                    }
+
+                    LineRelativePosition::Inside => {
+                        document_draw.cursor_prims.push(self.new_prim((
+                            math::Rectangle::new(
+                                ctx.page_content_rect.left_top,
+                                (ctx.page_content_rect.width(), line.height),
+                            ),
+                            document_draw.selection_color,
+                        )));
+                    }
+                    LineRelativePosition::Outside => {}
+                }
+
+                if line_idx != paragraph.lines.len() - 1 {
                     let delta = properties
                         .spacing
                         .line
                         .map(|sp| sp * ctx.scale)
                         .unwrap_or(Self::DEFAULT_LINE_SPACING * line.height);
 
-                    println!("DELTA {:?}", delta);
                     self.vertical_offset_and_push(&mut ctx, &mut document_draw.pages, delta);
                 }
             }
 
-            if idx != paragraphs_len - 1 {
+            if par_idx != paragraphs_len - 1 {
                 let delta = properties
                     .spacing
                     .after
@@ -392,6 +441,8 @@ impl DrawState<'_> {
                 let ratio = document_draw.scale / prev;
                 self.scale_by_ratio(document_draw, ratio);
             }
+            DocumentCommand::ChangeCharIdx(char_delta) => document_draw.change_char(char_delta),
+            DocumentCommand::ChangeLineIdx(line_delta) => document_draw.change_line(line_delta),
         }
     }
 
@@ -423,9 +474,56 @@ impl DrawState<'_> {
     }
 }
 
+fn get_cursor_rect(
+    paragraph: &Paragraph,
+    line: &Line,
+    char_idx: usize,
+    ctx: &Context,
+) -> math::Rectangle {
+    let mut curr = 0;
+    for word in &paragraph.words[line.range.clone()] {
+        let graphemes = word.word.grapheme_indices(true).collect::<Vec<_>>();
+        let len = graphemes.len();
+
+        if curr + len < char_idx {
+            curr += len;
+            continue;
+        } else if curr + len == char_idx {
+            curr += len;
+            continue;
+        }
+
+        let mut idx = char_idx - curr;
+        for glyphs_view in &word.glyphs_views {
+            if let Some(glyphs) = glyphs_view.primitive.get_glyphs() {
+                if glyphs.len() <= idx {
+                    idx -= glyphs.len();
+                    continue;
+                }
+                let glyph = glyphs[idx].clone();
+                let bounding_box = glyph.pixel_bounding_box().unwrap_or_default();
+
+                let mut left_top = glyphs_view.primitive.get_rect().left_top;
+                left_top.x += glyph.position().x;
+                left_top.y = ctx.page_content_rect.y();
+
+                return math::Rectangle::new(
+                    left_top,
+                    (
+                        (bounding_box.max.x - bounding_box.min.x) as f32,
+                        line.height,
+                    ),
+                );
+            }
+        }
+    }
+
+    math::Rectangle::default()
+}
+
 impl DrawState<'_> {
     fn scale_by_ratio(&self, document_draw: &mut DocumentDraw, ratio: f32) {
-        document_draw.paragraphes.iter_mut().for_each(|par| {
+        document_draw.paragraphs.iter_mut().for_each(|par| {
             par.words.iter_mut().for_each(|word| {
                 word.glyphs_views.iter_mut().for_each(|gv| {
                     let prop = gv.primitive.prop.clone().scale(ratio);
@@ -474,34 +572,19 @@ fn update_line(
 ) {
     let mut last_scale = 1f32;
     for word in &mut words[line.range.clone()] {
-        let mut prev_glyph = None;
         for glyphs_view in &mut word.glyphs_views {
             let math::Size { width, height } = glyphs_view.primitive.get_rect().size();
 
-            let end = glyphs_view.word_range.end;
-            let start = glyphs_view.word_range.start;
-            let fst_char = word.word[start..=start].chars().next().unwrap_or_default();
-            let last_char = word.word[(end - 1)..end].chars().next().unwrap_or_default();
-
             if let PrimitiveProperties::PlainText(PlainTextProperties {
-                left_top,
-                font,
-                scale,
-                ..
+                left_top, scale, ..
             }) = &mut glyphs_view.primitive.prop
             {
                 *left_top = ctx.page_content_rect.left_top;
 
-                if let Some(prev) = prev_glyph {
-                    vertical_offset +=
-                        font.pair_kerning(rusttype::Scale::uniform(*scale), prev, fst_char)
-                            * ctx.scale;
-                }
                 left_top.x += vertical_offset;
                 left_top.y += (line.height - height) * ctx.scale;
                 vertical_offset += width;
 
-                prev_glyph = Some(last_char);
                 last_scale = *scale;
             }
         }
@@ -608,7 +691,7 @@ fn push_grapheme_to_curr_word(properties: &TextProperties, curr_word: &mut Word,
     curr_word.word.push_str(g);
     if let Some(last_glyphs_view) = curr_word.glyphs_views.last_mut() {
         if last_glyphs_view.properties == properties {
-            last_glyphs_view.word_range.end += 1;
+            last_glyphs_view.word_range.end += g.len();
         } else {
             let last = last_glyphs_view.word_range.end;
             curr_word.glyphs_views.push(GlyphsView {
@@ -620,7 +703,7 @@ fn push_grapheme_to_curr_word(properties: &TextProperties, curr_word: &mut Word,
     } else {
         curr_word.glyphs_views.push(GlyphsView {
             properties,
-            word_range: 0..1,
+            word_range: 0..g.len(),
             ..Default::default()
         })
     }
@@ -691,6 +774,80 @@ impl GetOrLoadFont for DocumentDraw {
 }
 
 impl DocumentDraw {
+    pub fn change_char(&mut self, char_delta: i64) {
+        let cursor = self.get_cursor_pos();
+
+        if cursor.char_idx as i64 + char_delta < 0 {
+            self.change_line(-1);
+            self.get_cursor_pos_mut().char_idx = self.get_curr_line_len();
+        } else if cursor.char_idx as i64 + char_delta >= self.get_curr_line_len() as i64 {
+            self.change_line(1);
+            self.get_cursor_pos_mut().char_idx = 0;
+        } else {
+            self.get_cursor_pos_mut().char_idx = (cursor.char_idx as i64 + char_delta) as usize;
+        }
+    }
+
+    fn get_curr_line_len(&self) -> usize {
+        let cursor = self.get_cursor_pos();
+        let paragraph = &self.paragraphs[cursor.par_idx];
+        let words = &paragraph.words;
+        let line = &paragraph.lines[cursor.line_idx];
+
+        let mut len = 0;
+        for word in &words[line.range.clone()] {
+            for glyphs_view in &word.glyphs_views {
+                len += glyphs_view.primitive.get_glyphs().unwrap_or_default().len();
+            }
+            len += 1;
+        }
+
+        len
+    }
+
+    fn get_curr_par_lines_len(&self) -> usize {
+        self.paragraphs[self.get_cursor_pos().par_idx].lines.len()
+    }
+
+    fn get_cursor_pos_mut(&mut self) -> &mut CursorPos {
+        match &mut self.cursor {
+            Cursor::View(cursor)
+            | Cursor::Normal(cursor)
+            | Cursor::Edit(cursor)
+            | Cursor::Select { end: cursor, .. } => cursor,
+        }
+    }
+
+    fn get_cursor_pos(&self) -> &CursorPos {
+        match &self.cursor {
+            Cursor::View(cursor)
+            | Cursor::Normal(cursor)
+            | Cursor::Edit(cursor)
+            | Cursor::Select { end: cursor, .. } => cursor,
+        }
+    }
+
+    pub fn change_line(&mut self, line_delta: i64) {
+        let cursor = self.get_cursor_pos();
+
+        if cursor.line_idx as i64 + line_delta < 0 {
+            self.change_par(-1);
+            self.get_cursor_pos_mut().char_idx = self.get_curr_par_lines_len();
+        } else if cursor.line_idx as i64 + line_delta >= self.get_curr_par_lines_len() as i64 {
+            self.change_par(1);
+            self.get_cursor_pos_mut().line_idx = 0;
+        } else {
+            self.get_cursor_pos_mut().line_idx = (cursor.line_idx as i64 + line_delta) as usize;
+        }
+    }
+
+    pub fn change_par(&mut self, par_delta: i64) {
+        self.get_cursor_pos_mut().par_idx = (self.get_cursor_pos().par_idx as i64 + par_delta)
+            .max(0)
+            .min(self.paragraphs.len() as i64 - 1)
+            as usize;
+    }
+
     pub fn prims(&self) -> PrimIter<'_> {
         PrimIter {
             document: self,
@@ -703,7 +860,12 @@ impl DocumentDraw {
             f(&page.primitive)
         }
 
-        for par in &self.paragraphes {
+        for cursor_prim in &self.cursor_prims {
+            println!("CURSOR PRIM {:?}", cursor_prim.get_rect());
+            f(cursor_prim);
+        }
+
+        for par in &self.paragraphs {
             for word in &par.words {
                 for glyphs_view in &word.glyphs_views {
                     f(&glyphs_view.primitive)
@@ -720,12 +882,16 @@ impl DocumentDraw {
             f(&mut page.primitive)
         }
 
-        for par in &mut self.paragraphes {
+        for par in &mut self.paragraphs {
             for word in &mut par.words {
                 for glyphs_view in &mut word.glyphs_views {
                     f(&mut glyphs_view.primitive)
                 }
             }
+        }
+
+        for cursor_prim in &mut self.cursor_prims {
+            f(cursor_prim);
         }
     }
 }
@@ -788,13 +954,16 @@ impl Default for PageProperties {
 impl Default for DocumentDraw {
     fn default() -> Self {
         Self {
-            scroll: 100.,
+            selection_color: Color::BLACK,
             bg_color: Color::BLACK,
-            scale: 0.5,
-            cursor: Cursor::Normal(Default::default()),
+            scroll: 100.,
+            scale: 1.,
+
             pages: Default::default(),
-            paragraphes: Default::default(),
             fonts: Default::default(),
+            paragraphs: Default::default(),
+            cursor_prims: Default::default(),
+            cursor: Cursor::Normal(Default::default()),
         }
     }
 }
@@ -802,5 +971,113 @@ impl Default for DocumentDraw {
 impl From<(String, String)> for FontIdx {
     fn from((name, mode): (String, String)) -> Self {
         Self { name, mode }
+    }
+}
+
+pub enum CursorRelativePosition {
+    Outside,
+
+    Inside,
+    Start,
+    End,
+
+    ExactStart,
+    ExactEnd,
+    Exact,
+}
+
+pub enum LineRelativePosition {
+    Outside,
+    Inside,
+    Exact(usize),
+    ExactStart(usize),
+    ExactEnd(usize),
+}
+
+impl Cursor {
+    pub fn match_par_line(&self, par_idx: usize, line_idx: usize) -> LineRelativePosition {
+        use LineRelativePosition::*;
+        match self {
+            Cursor::View(cursor) | Cursor::Normal(cursor) | Cursor::Edit(cursor) => {
+                if cursor.line_idx == line_idx && cursor.par_idx == par_idx {
+                    Exact(cursor.char_idx)
+                } else {
+                    Outside
+                }
+            }
+            Cursor::Select { start, end } => {
+                if start.par_idx == par_idx && start.line_idx == line_idx {
+                    ExactStart(start.char_idx)
+                } else if end.par_idx == par_idx && end.line_idx == line_idx {
+                    ExactEnd(end.char_idx)
+                } else if (line_idx <= start.line_idx && start.par_idx == par_idx)
+                    || par_idx < start.par_idx
+                    || (line_idx >= end.line_idx && end.par_idx == par_idx)
+                    || par_idx > end.par_idx
+                {
+                    Outside
+                } else {
+                    Inside
+                }
+            }
+        }
+    }
+
+    pub fn match_pos(
+        &self,
+        CursorPos {
+            par_idx,
+            line_idx,
+            char_idx,
+        }: CursorPos,
+    ) -> CursorRelativePosition {
+        use CursorRelativePosition::*;
+        match self {
+            Cursor::View(cursor) | Cursor::Normal(cursor) | Cursor::Edit(cursor) => {
+                if cursor.par_idx == par_idx
+                    && cursor.line_idx == line_idx
+                    && cursor.char_idx == char_idx
+                {
+                    Exact
+                } else {
+                    Outside
+                }
+            }
+            Cursor::Select { start, end } => {
+                if start.line_idx == line_idx && start.par_idx == par_idx {
+                    match start.char_idx.cmp(&char_idx) {
+                        Ordering::Less => Start,
+                        Ordering::Greater => Outside,
+                        Ordering::Equal => ExactStart,
+                    }
+                } else if end.line_idx == line_idx && end.par_idx == par_idx {
+                    match end.char_idx.cmp(&char_idx) {
+                        Ordering::Equal => ExactEnd,
+                        Ordering::Less => Outside,
+                        Ordering::Greater => End,
+                    }
+                } else {
+                    if (line_idx <= start.line_idx && start.par_idx == par_idx)
+                        || par_idx < start.par_idx
+                        || (line_idx >= end.line_idx && end.par_idx == par_idx)
+                        || par_idx > end.par_idx
+                    {
+                        Outside
+                    } else {
+                        Inside
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl CursorPos {
+    pub fn from_char_idx(char_idx: usize) -> Self {
+        Self {
+            par_idx: 0,
+            line_idx: 0,
+            char_idx,
+        }
     }
 }

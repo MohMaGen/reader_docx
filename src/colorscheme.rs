@@ -12,6 +12,7 @@ pub struct ColorScheme {
     pub page_color: Color,
     pub page_bg_color: Color,
     pub page_border_color: Color,
+    pub selection_color: Color,
 
     pub fill_color: Color,
 }
@@ -29,6 +30,8 @@ impl Default for ColorScheme {
             page_color: Color::from(0xd3c6aaff),
             page_bg_color: Color::from(0x4f5b58ff),
             page_border_color: Color::from(0xe67e80ff),
+            selection_color: Color::from(0xa7c080),
+
             fill_color: Color::from(0x1e2326),
         }
     }
@@ -39,7 +42,7 @@ impl ColorScheme {
         match mode {
             state::Mode::View => self.view_mode_color,
             state::Mode::Edit => self.edit_mode_color,
-            state::Mode::Command | state::Mode::CommandInput => self.command_mode_color,
+            state::Mode::Normal | state::Mode::CommandInput => self.command_mode_color,
         }
     }
 }

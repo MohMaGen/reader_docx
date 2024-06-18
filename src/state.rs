@@ -22,7 +22,7 @@ pub enum Mode {
     #[default]
     View,
     Edit,
-    Command,
+    Normal,
     CommandInput,
 }
 impl State {
@@ -39,7 +39,7 @@ impl std::fmt::Display for Mode {
             match self {
                 Mode::View => "view",
                 Mode::Edit => "edit",
-                Mode::Command => "command",
+                Mode::Normal => "normal",
                 Mode::CommandInput => "command",
             }
         )
