@@ -101,6 +101,7 @@ pub enum DocumentCommand {
     ChangeCharIdx(i64),
     ChangeLineIdx(i64),
     Remove,
+    Add(String),
 }
 
 pub enum VerticalSpacing {
@@ -326,6 +327,25 @@ impl DrawState<'_> {
                 let _ = self.update_document(document_draw);
                 document_draw.change_char(-1);
             }
+            DocumentCommand::Add(data) => {
+                document_draw
+                    .insert(data)
+                    .iter()
+                    .for_each(|(par_idx, word_idx)| {
+                        let par = &mut document_draw.paragraphs[*par_idx];
+                        let par_tp = par.properties.text_properties.clone().unwrap_or_default();
+
+                        let word = &mut par.words[*word_idx];
+                        let scale = document_draw.scale;
+                        println!("{:?}", word);
+
+                        let _ =
+                            self.create_word_prim(word, &mut document_draw.fonts, &par_tp, scale);
+                    });
+
+                let _ = self.update_document(document_draw);
+                document_draw.change_char(1);
+            }
         }
     }
 
@@ -421,7 +441,8 @@ impl DrawState<'_> {
         paragraph_tp: &TextProperties,
         scale: f32,
     ) -> Result<(), anyhow::Error> {
-        Ok(for glyphs_view in word.glyphs_views.iter_mut() {
+        for glyphs_view in word.glyphs_views.iter_mut() {
+            glyphs_view.word_range.end = glyphs_view.word_range.end.min(word.word.len());
             let content = word.word[glyphs_view.word_range.clone()].to_string();
 
             let font = fonts_collection.get_or_load_font(glyphs_view.properties.get_font_idx())?;
@@ -452,7 +473,8 @@ impl DrawState<'_> {
                 content,
                 font,
             ));
-        })
+        }
+        Ok(())
     }
 
     fn vertical_offset_and_push(&self, ctx: &mut Context, pages: &mut Vec<Page>, delta: f32) {
@@ -858,6 +880,71 @@ pub enum CursorTargetMut<'a> {
 }
 
 impl DocumentDraw {
+    pub fn insert(&mut self, data: String) -> Vec<(usize, usize)> {
+        let mut result = Vec::new();
+
+        let target = self.get_cursor_target();
+        let cursor = self.get_cursor_pos().clone();
+
+        let paragraph = &mut self.paragraphs[cursor.par_idx];
+        let line = paragraph.lines[cursor.line_idx].clone();
+        let offset = line.range.start;
+
+        match target {
+            CursorTargetIdx::WordTarget {
+                word: word_idx,
+                idx,
+            } => {
+                let word = &mut paragraph.words[offset + word_idx];
+                let mut end = 0;
+                for (g_idx, (w_idx, grapheme)) in word.word.grapheme_indices(true).enumerate() {
+                    if g_idx == idx {
+                        end = w_idx + grapheme.len();
+                    }
+                }
+                word.word = format!("{}{}{}", &word.word[..end], data, &word.word[end..]);
+
+                for glyphs_view in &mut word.glyphs_views {
+                    if glyphs_view.word_range.start >= idx && glyphs_view.word_range.start != 0 {
+                        glyphs_view.word_range.start += data.len();
+                    }
+                    if glyphs_view.word_range.end >= idx {
+                        glyphs_view.word_range.end += data.len();
+                    }
+                }
+
+                result.push((cursor.par_idx, word_idx));
+            }
+
+            CursorTargetIdx::WhiteSpace { next, .. } => {
+                let word = &mut paragraph.words[offset + next];
+                let mut new_data = data.clone();
+                new_data.push_str(word.word.as_str());
+                word.word = new_data;
+                let len = data.len();
+                for glyphs_view in &mut word.glyphs_views {
+                    if glyphs_view.word_range.start != 0 {
+                        glyphs_view.word_range.start += len;
+                    }
+                    glyphs_view.word_range.end += len;
+                }
+                result.push((cursor.par_idx, next));
+            }
+
+            CursorTargetIdx::LineEnd { end: word_idx } => {
+                let word = &mut paragraph.words[offset + word_idx];
+                word.word.push_str(data.as_str());
+                let len = data.len();
+                word.glyphs_views
+                    .last_mut()
+                    .map(|last| last.word_range.end += len);
+                result.push((cursor.par_idx, word_idx));
+            }
+            CursorTargetIdx::Nothing => {}
+        }
+        result
+    }
+
     pub fn remove(&mut self) -> Vec<(usize, usize)> {
         let mut result = Vec::new();
 
@@ -889,10 +976,12 @@ impl DocumentDraw {
                     for glyphs_view in &mut word.glyphs_views {
                         if glyphs_view.word_range.start >= idx && glyphs_view.word_range.start != 0
                         {
-                            glyphs_view.word_range.start -= 1;
+                            glyphs_view.word_range.start -=
+                                (start as i64 - end as i64).max(0) as usize;
                         }
                         if glyphs_view.word_range.end >= idx {
-                            glyphs_view.word_range.end -= 1;
+                            glyphs_view.word_range.end -=
+                                (start as i64 - end as i64).max(0) as usize;
                         }
                     }
 
@@ -931,7 +1020,7 @@ impl DocumentDraw {
 
             CursorTargetIdx::LineEnd { end: word_idx } => {
                 let word = &mut paragraph.words[offset + word_idx];
-                if word.word.len() == 0 {
+                if word.word.len() == 1 {
                     paragraph.words.remove(offset + word_idx);
                 } else {
                     if let Some((w_idx, grapheme)) =
@@ -945,10 +1034,12 @@ impl DocumentDraw {
                             if glyphs_view.word_range.start >= idx
                                 && glyphs_view.word_range.start != 0
                             {
-                                glyphs_view.word_range.start -= 1;
+                                glyphs_view.word_range.start -=
+                                    (start as i64 - end as i64).max(0) as usize;
                             }
                             if glyphs_view.word_range.end >= idx {
-                                glyphs_view.word_range.end -= 1;
+                                glyphs_view.word_range.end -=
+                                    (start as i64 - end as i64).max(0) as usize;
                             }
                         }
 

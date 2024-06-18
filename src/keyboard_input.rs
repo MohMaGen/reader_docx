@@ -35,7 +35,7 @@ pub fn keyboard_input(
 
     match mode {
         Mode::View => {
-            if command_mode_on_escape(&event, Arc::clone(&state))? {
+            if normal_mode_on_escape(&event, Arc::clone(&state))? {
                 return Ok(());
             }
 
@@ -46,6 +46,16 @@ pub fn keyboard_input(
             if normal_movement(&event, document_commands) {
                 return Ok(());
             }
+
+            match event.physical_key {
+                PhysicalKey::Code(KeyCode::KeyI) => {
+                    let mut state = state.lock().to_anyhow()?;
+                    state.mode = Mode::Edit;
+                    return Ok(());
+                }
+                _ => {}
+            }
+
             match event.text {
                 Some(s) if s == ":" => {
                     let mut state = state.lock().to_anyhow()?;
@@ -57,7 +67,7 @@ pub fn keyboard_input(
         }
 
         Mode::CommandInput => {
-            if command_mode_on_escape(&event, Arc::clone(&state))? {
+            if normal_mode_on_escape(&event, Arc::clone(&state))? {
                 return Ok(());
             }
 
@@ -66,6 +76,19 @@ pub fn keyboard_input(
             }
 
             process_command_input(&event, Arc::clone(&state))?;
+        }
+
+        Mode::Edit => {
+            if normal_mode_on_escape(&event, Arc::clone(&state))? {
+                return Ok(());
+            }
+
+            match event.text {
+                Some(s) => {
+                    document_commands.push(DocumentCommand::Add(s.to_string()));
+                }
+                _ => {}
+            }
         }
         _ => {}
     }
@@ -193,7 +216,7 @@ fn process_command_input(
     Ok(())
 }
 
-fn command_mode_on_escape(
+fn normal_mode_on_escape(
     event: &winit::event::KeyEvent,
     state: Arc<Mutex<State>>,
 ) -> Result<bool, anyhow::Error> {
