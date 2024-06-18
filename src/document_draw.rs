@@ -1,4 +1,9 @@
-use std::{cmp::Ordering, collections::HashMap, ops::Range, sync::Arc};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, VecDeque},
+    ops::Range,
+    sync::Arc,
+};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
@@ -30,7 +35,7 @@ pub enum Cursor {
     Select { start: CursorPos, end: CursorPos },
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct CursorPos {
     pub par_idx: usize,
     pub line_idx: usize,
@@ -56,7 +61,7 @@ pub struct Paragraph {
     pub lines: Vec<Line>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Line {
     height: f32,
     min_width: f32,
@@ -95,6 +100,7 @@ pub enum DocumentCommand {
     RatioScale(f32),
     ChangeCharIdx(i64),
     ChangeLineIdx(i64),
+    Remove,
 }
 
 pub enum VerticalSpacing {
@@ -201,6 +207,8 @@ impl DrawState<'_> {
             scale,
         };
 
+        delete_empty_par(document_draw);
+
         let paragraphs_len = document_draw.paragraphs.len();
         for (par_idx, paragraph) in document_draw.paragraphs.iter_mut().enumerate() {
             let properties = paragraph.properties.clone();
@@ -299,6 +307,25 @@ impl DrawState<'_> {
             }
             DocumentCommand::ChangeCharIdx(char_delta) => document_draw.change_char(char_delta),
             DocumentCommand::ChangeLineIdx(line_delta) => document_draw.change_line(line_delta),
+            DocumentCommand::Remove => {
+                document_draw
+                    .remove()
+                    .iter()
+                    .for_each(|(par_idx, word_idx)| {
+                        let par = &mut document_draw.paragraphs[*par_idx];
+                        let par_tp = par.properties.text_properties.clone().unwrap_or_default();
+
+                        let word = &mut par.words[*word_idx];
+                        let scale = document_draw.scale;
+                        println!("{:?}", word);
+
+                        let _ =
+                            self.create_word_prim(word, &mut document_draw.fonts, &par_tp, scale);
+                    });
+
+                let _ = self.update_document(document_draw);
+                document_draw.change_char(-1);
+            }
         }
     }
 
@@ -308,6 +335,15 @@ impl DrawState<'_> {
         document: &'a DocumentDraw,
     ) {
         document.for_prims(|prim| self.draw_prim(rpass, prim));
+    }
+}
+
+fn delete_empty_par(document_draw: &mut DocumentDraw) {
+    for idx in 0..document_draw.paragraphs.len() {
+        if document_draw.paragraphs[idx].words.len() == 0 {
+            document_draw.paragraphs.remove(idx);
+            break;
+        }
     }
 }
 
@@ -325,11 +361,11 @@ impl DrawState<'_> {
     ) {
         match cursor.match_par_line(par_idx, line_idx) {
             LineRelativePosition::Exact(pos) => {
-                let rect = get_cursor_rect(paragraph, line, pos, ctx);
+                let rect = get_cursor_rect(&paragraph.words, line, pos, ctx);
                 cursor_prims.push(self.new_prim((rect, *selection_color)));
             }
             LineRelativePosition::ExactStart(start) => {
-                let rect = get_cursor_rect(paragraph, line, start, ctx);
+                let rect = get_cursor_rect(&paragraph.words, line, start, ctx);
                 cursor_prims.push(self.new_prim((
                     math::Rectangle::new(
                         (rect.x(), ctx.page_content_rect.y()),
@@ -342,7 +378,7 @@ impl DrawState<'_> {
                 )));
             }
             LineRelativePosition::ExactEnd(end) => {
-                let rect = get_cursor_rect(paragraph, line, end, ctx);
+                let rect = get_cursor_rect(&paragraph.words, line, end, ctx);
                 cursor_prims.push(self.new_prim((
                     math::Rectangle::new(
                         ctx.page_content_rect.left_top,
@@ -373,41 +409,50 @@ impl DrawState<'_> {
         ctx: &Context,
     ) -> Result<(), anyhow::Error> {
         for word in words.iter_mut() {
-            for glyphs_view in word.glyphs_views.iter_mut() {
-                let content = word.word[glyphs_view.word_range.clone()].to_string();
-
-                let font =
-                    fonts_collection.get_or_load_font(glyphs_view.properties.get_font_idx())?;
-
-                let color = glyphs_view
-                    .properties
-                    .color
-                    .unwrap_or(paragraph_tp.color.unwrap_or(Color::BLACK));
-
-                let scale = ctx.scale
-                    * 2.
-                    * glyphs_view
-                        .properties
-                        .size
-                        .clone()
-                        .map(|sz| sz.0)
-                        .unwrap_or(
-                            paragraph_tp
-                                .size
-                                .clone()
-                                .map(|sz| sz.0)
-                                .unwrap_or(Self::DEFAULT_FONT_SIZE),
-                        );
-
-                glyphs_view.primitive = self.new_prim(PlainTextProperties::new(
-                    ((0., 0.), (0., scale)),
-                    color,
-                    content,
-                    font,
-                ));
-            }
+            self.create_word_prim(word, fonts_collection, &paragraph_tp, ctx.scale)?;
         }
         Ok(())
+    }
+
+    fn create_word_prim<T: GetOrLoadFont>(
+        &self,
+        word: &mut Word,
+        fonts_collection: &mut T,
+        paragraph_tp: &TextProperties,
+        scale: f32,
+    ) -> Result<(), anyhow::Error> {
+        Ok(for glyphs_view in word.glyphs_views.iter_mut() {
+            let content = word.word[glyphs_view.word_range.clone()].to_string();
+
+            let font = fonts_collection.get_or_load_font(glyphs_view.properties.get_font_idx())?;
+
+            let color = glyphs_view
+                .properties
+                .color
+                .unwrap_or(paragraph_tp.color.unwrap_or(Color::BLACK));
+
+            let scale = scale
+                * 2.
+                * glyphs_view
+                    .properties
+                    .size
+                    .clone()
+                    .map(|sz| sz.0)
+                    .unwrap_or(
+                        paragraph_tp
+                            .size
+                            .clone()
+                            .map(|sz| sz.0)
+                            .unwrap_or(Self::DEFAULT_FONT_SIZE),
+                    );
+
+            glyphs_view.primitive = self.new_prim(PlainTextProperties::new(
+                ((0., 0.), (0., scale)),
+                color,
+                content,
+                font,
+            ));
+        })
     }
 
     fn vertical_offset_and_push(&self, ctx: &mut Context, pages: &mut Vec<Page>, delta: f32) {
@@ -450,15 +495,10 @@ impl DrawState<'_> {
     }
 }
 
-fn get_cursor_rect(
-    paragraph: &Paragraph,
-    line: &Line,
-    char_idx: usize,
-    ctx: &Context,
-) -> math::Rectangle {
+fn get_cursor_rect(words: &[Word], line: &Line, char_idx: usize, ctx: &Context) -> math::Rectangle {
     let mut curr = 0;
     let mut prev_x = None;
-    for word in &paragraph.words[line.range.clone()] {
+    for word in &words[line.range.clone()] {
         if let Some(prev_x) = prev_x {
             return (
                 (prev_x, ctx.page_content_rect.y()),
@@ -713,6 +753,32 @@ fn finish_curr_word(words: &mut Vec<WordState>, curr_word: &mut Word) {
 }
 
 impl Word {
+    fn clear_glyphs(&mut self) {
+        let mut glyphs = Vec::new();
+        if let Some(prev) = self.glyphs_views.first_mut() {
+            let mut prev = GlyphsView {
+                word_range: prev.word_range.clone(),
+                properties: prev.properties.clone(),
+                ..Default::default()
+            };
+
+            for glyphs_view in &self.glyphs_views[1..] {
+                if prev.properties == glyphs_view.properties {
+                    prev.word_range.end = glyphs_view.word_range.end;
+                } else {
+                    glyphs.push(prev);
+                    prev = GlyphsView {
+                        word_range: glyphs_view.word_range.clone(),
+                        properties: glyphs_view.properties.clone(),
+                        ..Default::default()
+                    };
+                }
+            }
+            glyphs.push(prev);
+        }
+        self.glyphs_views = glyphs;
+    }
+
     fn clone_without_primitive(&self) -> Word {
         Word {
             word: self.word.clone(),
@@ -770,7 +836,188 @@ impl GetOrLoadFont for DocumentDraw {
     }
 }
 
+pub enum CursorTarget<'a> {
+    WordTarget { word: &'a Word, idx: usize },
+    WhiteSpace { prev: &'a Word, next: &'a Word },
+    LineEnd { end: &'a Word },
+    Nothing,
+}
+
+pub enum CursorTargetIdx {
+    WordTarget { word: usize, idx: usize },
+    WhiteSpace { prev: usize, next: usize },
+    LineEnd { end: usize },
+    Nothing,
+}
+
+pub enum CursorTargetMut<'a> {
+    WordTarget { word: &'a mut Word, idx: usize },
+    WhiteSpace { prev: &'a mut Word, next: &'a Word },
+    LineEnd { end: &'a mut Word },
+    Nothing,
+}
+
 impl DocumentDraw {
+    pub fn remove(&mut self) -> Vec<(usize, usize)> {
+        let mut result = Vec::new();
+
+        let target = self.get_cursor_target();
+        let cursor = self.get_cursor_pos().clone();
+
+        let paragraph = &mut self.paragraphs[cursor.par_idx];
+        let line = paragraph.lines[cursor.line_idx].clone();
+        let offset = line.range.start;
+
+        match target {
+            CursorTargetIdx::WordTarget {
+                word: word_idx,
+                idx,
+            } => {
+                let word = &mut paragraph.words[offset + word_idx];
+                if word.word.len() == 1 {
+                    paragraph.words.remove(offset + word_idx);
+                } else {
+                    let (mut start, mut end) = (0, 0);
+                    for (g_idx, (w_idx, grapheme)) in word.word.grapheme_indices(true).enumerate() {
+                        if g_idx == idx {
+                            start = w_idx;
+                            end = start + grapheme.len();
+                            break;
+                        }
+                    }
+
+                    for glyphs_view in &mut word.glyphs_views {
+                        if glyphs_view.word_range.start >= idx && glyphs_view.word_range.start != 0
+                        {
+                            glyphs_view.word_range.start -= 1;
+                        }
+                        if glyphs_view.word_range.end >= idx {
+                            glyphs_view.word_range.end -= 1;
+                        }
+                    }
+
+                    word.word = format!("{}{}", &word.word[..start], &word.word[end..]);
+                    word.clear_glyphs();
+                    result.push((cursor.par_idx, word_idx));
+                }
+            }
+
+            CursorTargetIdx::WhiteSpace { prev, next } => {
+                let mut next_word = paragraph.words[offset + next].clone_without_primitive();
+                paragraph.words.remove(offset + next);
+                paragraph.words[offset + prev]
+                    .word
+                    .push_str(next_word.word.as_str());
+
+                let end = paragraph.words[offset + prev]
+                    .glyphs_views
+                    .last()
+                    .map(|g| g.word_range.end)
+                    .unwrap_or_default();
+
+                next_word.glyphs_views.iter_mut().for_each(|g| {
+                    g.word_range.start += end;
+                    g.word_range.end += end;
+                });
+
+                paragraph.words[offset + prev]
+                    .glyphs_views
+                    .append(&mut next_word.glyphs_views);
+
+                paragraph.words[offset + prev].clear_glyphs();
+
+                result.push((cursor.par_idx, offset + prev));
+            }
+
+            CursorTargetIdx::LineEnd { end: word_idx } => {
+                let word = &mut paragraph.words[offset + word_idx];
+                if word.word.len() == 0 {
+                    paragraph.words.remove(offset + word_idx);
+                } else {
+                    if let Some((w_idx, grapheme)) =
+                        word.word.grapheme_indices(true).collect::<Vec<_>>().last()
+                    {
+                        let start = *w_idx;
+                        let end = start + grapheme.len();
+                        let idx = end;
+
+                        for glyphs_view in &mut word.glyphs_views {
+                            if glyphs_view.word_range.start >= idx
+                                && glyphs_view.word_range.start != 0
+                            {
+                                glyphs_view.word_range.start -= 1;
+                            }
+                            if glyphs_view.word_range.end >= idx {
+                                glyphs_view.word_range.end -= 1;
+                            }
+                        }
+
+                        word.word = format!("{}{}", &word.word[..start], &word.word[end..]);
+                        word.clear_glyphs();
+                        result.push((cursor.par_idx, word_idx));
+                    }
+                }
+            }
+            CursorTargetIdx::Nothing => {}
+        }
+        result
+    }
+
+    fn get_cursor_target(&self) -> CursorTargetIdx {
+        let cursor = self.get_cursor_pos();
+
+        let paragraph = &self.paragraphs[cursor.par_idx];
+        let words = &paragraph.words;
+        let line = &paragraph.lines[cursor.line_idx];
+
+        use CursorTarget::*;
+        let mut targets = words[line.range.clone()]
+            .iter()
+            .map(|word| WordTarget { word, idx: 0 })
+            .enumerate()
+            .collect::<VecDeque<_>>();
+
+        let mut idx = cursor.char_idx;
+
+        while let Some((word_idx, target)) = targets.pop_front() {
+            match target {
+                WordTarget { word, .. } => {
+                    let len = word.word.graphemes(true).collect::<Vec<_>>().len();
+                    if idx < len {
+                        return CursorTargetIdx::WordTarget {
+                            word: word_idx,
+                            idx,
+                        };
+                    }
+                    idx -= len;
+                    if let Some((_, next)) = targets.front() {
+                        if let WordTarget { word: next, .. } = &next {
+                            targets.push_front((word_idx, WhiteSpace { prev: word, next }));
+                        }
+                    } else {
+                        targets.push_front((word_idx, LineEnd { end: word }));
+                    }
+                }
+                WhiteSpace { .. } => {
+                    if idx == 0 {
+                        return CursorTargetIdx::WhiteSpace {
+                            prev: word_idx,
+                            next: word_idx + 1,
+                        };
+                    }
+                    idx -= 1;
+                }
+                LineEnd { .. } => {
+                    if idx == 0 {
+                        return CursorTargetIdx::LineEnd { end: word_idx };
+                    }
+                }
+                Nothing => {}
+            }
+        }
+        CursorTargetIdx::Nothing
+    }
+
     pub fn change_char(&mut self, char_delta: i64) {
         let cursor = self.get_cursor_pos();
 

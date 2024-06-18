@@ -77,6 +77,10 @@ fn normal_movement(
     document_commands: &mut Vec<DocumentCommand>,
 ) -> bool {
     match event.physical_key {
+        PhysicalKey::Code(KeyCode::Backspace) => {
+            document_commands.push(DocumentCommand::Remove);
+            true
+        }
         PhysicalKey::Code(KeyCode::KeyL) => {
             document_commands.push(DocumentCommand::ChangeCharIdx(1));
             true
