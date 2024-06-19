@@ -102,6 +102,7 @@ pub enum DocumentCommand {
     ChangeLineIdx(i64),
     Remove,
     Add(String),
+    AddSpace,
 }
 
 pub enum VerticalSpacing {
@@ -208,7 +209,7 @@ impl DrawState<'_> {
             scale,
         };
 
-        delete_empty_par(document_draw);
+        document_draw.clear_document();
 
         let paragraphs_len = document_draw.paragraphs.len();
         for (par_idx, paragraph) in document_draw.paragraphs.iter_mut().enumerate() {
@@ -343,6 +344,26 @@ impl DrawState<'_> {
                             self.create_word_prim(word, &mut document_draw.fonts, &par_tp, scale);
                     });
 
+                document_draw.clear_document();
+                let _ = self.update_document(document_draw);
+                document_draw.change_char(1);
+            }
+            DocumentCommand::AddSpace => {
+                document_draw
+                    .insert_space()
+                    .iter()
+                    .for_each(|(par_idx, word_idx)| {
+                        let par = &mut document_draw.paragraphs[*par_idx];
+                        let par_tp = par.properties.text_properties.clone().unwrap_or_default();
+
+                        let word = &mut par.words[*word_idx];
+                        let scale = document_draw.scale;
+                        println!("{:?}", word);
+
+                        let _ =
+                            self.create_word_prim(word, &mut document_draw.fonts, &par_tp, scale);
+                    });
+                document_draw.clear_document();
                 let _ = self.update_document(document_draw);
                 document_draw.change_char(1);
             }
@@ -355,15 +376,6 @@ impl DrawState<'_> {
         document: &'a DocumentDraw,
     ) {
         document.for_prims(|prim| self.draw_prim(rpass, prim));
-    }
-}
-
-fn delete_empty_par(document_draw: &mut DocumentDraw) {
-    for idx in 0..document_draw.paragraphs.len() {
-        if document_draw.paragraphs[idx].words.len() == 0 {
-            document_draw.paragraphs.remove(idx);
-            break;
-        }
     }
 }
 
@@ -880,6 +892,98 @@ pub enum CursorTargetMut<'a> {
 }
 
 impl DocumentDraw {
+    pub fn clear_document(&mut self) {
+        let mut idx = 0;
+        while idx < self.paragraphs.len() {
+            if self.paragraphs[idx].words.is_empty() {
+                self.paragraphs.remove(idx);
+            } else {
+                idx += 1;
+            }
+        }
+
+        for paragraph in &mut self.paragraphs {
+            idx = 0;
+            while idx < paragraph.words.len() {
+                if paragraph.words[idx].word.is_empty() {
+                    paragraph.words.remove(idx);
+                } else {
+                    idx += 1;
+                }
+            }
+        }
+    }
+
+    pub fn insert_space(&mut self) -> Vec<(usize, usize)> {
+        let mut result = Vec::new();
+
+        let target = self.get_cursor_target();
+        let cursor = self.get_cursor_pos().clone();
+
+        let paragraph = &mut self.paragraphs[cursor.par_idx];
+        let line = paragraph.lines[cursor.line_idx].clone();
+        let offset = line.range.start;
+
+        match target {
+            CursorTargetIdx::WordTarget {
+                word: word_idx,
+                idx,
+            } => {
+                let word = &mut paragraph.words[offset + word_idx];
+                let mut end = 0;
+                for (g_idx, (w_idx, grapheme)) in word.word.grapheme_indices(true).enumerate() {
+                    if g_idx == idx {
+                        end = w_idx + grapheme.len();
+                    }
+                }
+                let mut new_word = Word {
+                    word: word.word[end..].to_string(),
+                    glyphs_views: Vec::new(),
+                };
+                word.word = word.word[..end].to_string();
+                let mut word_glyphs = Vec::new();
+                for glyphs_view in &word.glyphs_views {
+                    if glyphs_view.word_range.end < end {
+                        word_glyphs.push(GlyphsView {
+                            word_range: glyphs_view.word_range.clone(),
+                            properties: glyphs_view.properties.clone(),
+                            ..Default::default()
+                        });
+                    } else if glyphs_view.word_range.start < end
+                        && glyphs_view.word_range.end >= end
+                    {
+                        word_glyphs.push(GlyphsView {
+                            word_range: glyphs_view.word_range.start..end,
+                            properties: glyphs_view.properties.clone(),
+                            ..Default::default()
+                        });
+                        new_word.glyphs_views.push(GlyphsView {
+                            word_range: 0..(glyphs_view.word_range.end - end),
+                            properties: glyphs_view.properties.clone(),
+                            ..Default::default()
+                        });
+                    } else {
+                        new_word.glyphs_views.push(GlyphsView {
+                            word_range: (glyphs_view.word_range.start - end)
+                                ..(glyphs_view.word_range.end - end),
+                            properties: glyphs_view.properties.clone(),
+                            ..Default::default()
+                        });
+                    }
+                }
+                word.glyphs_views = word_glyphs;
+                paragraph.words.insert(word_idx + 1, new_word);
+
+                result.push((cursor.par_idx, offset + word_idx));
+                result.push((cursor.par_idx, offset + word_idx + 1));
+            }
+            CursorTargetIdx::WhiteSpace { .. } => {}
+            CursorTargetIdx::LineEnd { .. } => {}
+            CursorTargetIdx::Nothing => {}
+        }
+        result
+    }
+
     pub fn insert(&mut self, data: String) -> Vec<(usize, usize)> {
         let mut result = Vec::new();
 
@@ -913,7 +1017,7 @@ impl DocumentDraw {
                     }
                 }
 
-                result.push((cursor.par_idx, word_idx));
+                result.push((cursor.par_idx, offset + word_idx));
             }
 
             CursorTargetIdx::WhiteSpace { next, .. } => {
@@ -928,7 +1032,7 @@ impl DocumentDraw {
                     }
                     glyphs_view.word_range.end += len;
                 }
-                result.push((cursor.par_idx, next));
+                result.push((cursor.par_idx, offset + next));
             }
 
             CursorTargetIdx::LineEnd { end: word_idx } => {
@@ -938,7 +1042,7 @@ impl DocumentDraw {
                 word.glyphs_views
                     .last_mut()
                     .map(|last| last.word_range.end += len);
-                result.push((cursor.par_idx, word_idx));
+                result.push((cursor.par_idx, offset + word_idx));
             }
             CursorTargetIdx::Nothing => {}
         }
@@ -987,7 +1091,7 @@ impl DocumentDraw {
 
                     word.word = format!("{}{}", &word.word[..start], &word.word[end..]);
                     word.clear_glyphs();
-                    result.push((cursor.par_idx, word_idx));
+                    result.push((cursor.par_idx, offset + word_idx));
                 }
             }
 
@@ -1045,7 +1149,7 @@ impl DocumentDraw {
 
                         word.word = format!("{}{}", &word.word[..start], &word.word[end..]);
                         word.clear_glyphs();
-                        result.push((cursor.par_idx, word_idx));
+                        result.push((cursor.par_idx, offset + word_idx));
                     }
                 }
             }

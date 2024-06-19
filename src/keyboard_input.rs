@@ -83,9 +83,20 @@ pub fn keyboard_input(
                 return Ok(());
             }
 
+            match event.physical_key {
+                PhysicalKey::Code(KeyCode::Backspace) => {
+                    document_commands.push(DocumentCommand::Remove);
+                    return Ok(());
+                }
+                _ => {}
+            }
+
             match event.text {
-                Some(s) => {
+                Some(s) if !s.trim().is_empty() => {
                     document_commands.push(DocumentCommand::Add(s.to_string()));
+                }
+                Some(s) if s.trim().is_empty() => {
+                    document_commands.push(DocumentCommand::AddSpace);
                 }
                 _ => {}
             }
