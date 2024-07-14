@@ -8,21 +8,18 @@ use anyhow::Context;
 use minidom::Element;
 use winit::{
     event::ElementState,
-    keyboard::{KeyCode, PhysicalKey},
+    keyboard::{KeyCode, PhysicalKey}, window::Window,
 };
 
 use crate::{
-    document_draw::{CursorPos, DocumentCommand},
-    docx_document::DocxDocument,
-    log_helper::LogHelper,
-    state::{self, Mode, State},
-    traits::AsAnyhow,
+    document_draw::{CursorPos, DocumentCommand}, docx_document::DocxDocument, draw::DrawState, log_helper::LogHelper, state::{self, Mode, State}, traits::AsAnyhow
 };
 
 pub fn keyboard_input(
     state: Arc<Mutex<State>>,
     event: winit::event::KeyEvent,
     document_commands: &mut Vec<DocumentCommand>,
+    draw_state: &DrawState,
 ) -> anyhow::Result<()> {
     if event.repeat {
         return Ok(());
@@ -71,7 +68,7 @@ pub fn keyboard_input(
                 return Ok(());
             }
 
-            if process_command_enter(&event, Arc::clone(&state))? {
+            if process_command_enter(&event, Arc::clone(&state), Arc::clone(&draw_state.window))? {
                 return Ok(());
             }
 
@@ -138,6 +135,7 @@ fn normal_movement(
 fn process_command_enter(
     event: &winit::event::KeyEvent,
     state: Arc<Mutex<State>>,
+    window: Arc<Window>,
 ) -> Result<bool, anyhow::Error> {
     if let PhysicalKey::Code(KeyCode::Enter) = event.physical_key {
         let command = {
@@ -157,8 +155,11 @@ fn process_command_enter(
             }
             "open" => {
                 let state = Arc::clone(&state);
-                std::thread::spawn(load_file_and_write_to_state(state));
+                std::thread::spawn(load_file_and_write_to_state(state, window));
             }
+            //"save" => {
+            //    std::thread::spawn(save_docx_file(state));
+            //}
             _ => {}
         }
     }
@@ -189,7 +190,7 @@ fn scroll(event: &winit::event::KeyEvent, document_draw: &mut Vec<DocumentComman
     }
 }
 
-fn load_file_and_write_to_state(state: Arc<Mutex<State>>) -> impl FnOnce() {
+fn load_file_and_write_to_state(state: Arc<Mutex<State>>, window: Arc<Window>) -> impl FnOnce() {
     move || {
         (|| {
             let (document, path) = pollster::block_on(load_docx())?;
@@ -200,6 +201,7 @@ fn load_file_and_write_to_state(state: Arc<Mutex<State>>) -> impl FnOnce() {
                 let mut state = state.lock().to_anyhow()?;
                 state.document = Some(state::Document { document, path });
             }
+            window.request_redraw();
 
             anyhow::Result::Ok(())
         })()
