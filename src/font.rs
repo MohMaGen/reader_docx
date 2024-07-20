@@ -15,6 +15,6 @@ pub fn find_font<'a>(
     let property = builder.build();
     let (bytes, index) = font_loader::system_fonts::get(&property).context("Failed to get font")?;
 
-    Ok(rusttype::Font::try_from_vec_and_index(bytes, index as u32)
-        .context("Failed to create font")?)
+    rusttype::Font::try_from_vec_and_index(bytes, index as u32)
+        .context("Failed to create font")
 }

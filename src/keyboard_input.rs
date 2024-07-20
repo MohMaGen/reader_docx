@@ -38,21 +38,18 @@ impl App<'_> {
                     return Ok(());
                 }
 
-                self.scale(&event);
-                self.scroll(&event);
+                self.scale(&event)?;
+                self.scroll(&event)?;
             }
             Mode::Normal => {
                 if self.normal_movement(&event)? {
                     return Ok(());
                 }
 
-                match event.physical_key {
-                    PhysicalKey::Code(KeyCode::KeyI) => {
-                        let mut state = self.state.lock().to_anyhow()?;
-                        state.mode = Mode::Edit;
-                        return Ok(());
-                    }
-                    _ => {}
+                if let PhysicalKey::Code(KeyCode::KeyI) = event.physical_key {
+                    let mut state = self.state.lock().to_anyhow()?;
+                    state.mode = Mode::Edit;
+                    return Ok(());
                 }
 
                 match event.text {
@@ -82,15 +79,12 @@ impl App<'_> {
                     return Ok(());
                 }
 
-                match event.physical_key {
-                    PhysicalKey::Code(KeyCode::Backspace) => {
-                        self.document_commands
-                            .lock()
-                            .to_anyhow()?
-                            .push(DocumentCommand::Remove);
-                        return Ok(());
-                    }
-                    _ => {}
+                if let PhysicalKey::Code(KeyCode::Backspace) = event.physical_key {
+                    self.document_commands
+                        .lock()
+                        .to_anyhow()?
+                        .push(DocumentCommand::Remove);
+                    return Ok(());
                 }
 
                 match event.text {
@@ -109,7 +103,6 @@ impl App<'_> {
                     _ => {}
                 }
             }
-            _ => {}
         }
         Ok(())
     }

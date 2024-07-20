@@ -1,5 +1,9 @@
 use std::{
-    cmp::Ordering, collections::{HashMap, VecDeque}, ops::Range, path::PathBuf, sync::Arc
+    cmp::Ordering,
+    collections::{HashMap, VecDeque},
+    ops::Range,
+    path::PathBuf,
+    sync::Arc,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -100,7 +104,7 @@ pub enum DocumentCommand {
     Remove,
     Add(String),
     AddSpace,
-    Save(PathBuf)
+    Save(PathBuf),
 }
 
 pub enum VerticalSpacing {
@@ -293,15 +297,15 @@ impl DrawState<'_> {
                 document_draw.scroll = new_scroll;
             }
             DocumentCommand::NewScale(scale) => {
-                let scale = scale.max(0.1).min(2.);
+                let scale = scale.clamp(0.1, 2.);
                 let ratio = scale / document_draw.scale;
                 self.scale_by_ratio(document_draw, ratio);
-                document_draw.scale = scale.max(0.1).min(2.);
+                document_draw.scale = scale.clamp(0.1, 2.);
             }
             DocumentCommand::DeltaScroll(delta) => document_draw.scroll += delta,
             DocumentCommand::RatioScale(ratio) => {
                 let prev = document_draw.scale;
-                document_draw.scale = (document_draw.scale * ratio).max(0.1).min(2.);
+                document_draw.scale = (document_draw.scale * ratio).clamp(0.1, 2.);
                 let ratio = document_draw.scale / prev;
                 self.scale_by_ratio(document_draw, ratio);
             }
@@ -365,9 +369,7 @@ impl DrawState<'_> {
                 let _ = self.update_document(document_draw);
                 document_draw.change_char(1);
             }
-            DocumentCommand::Save(file) => {
-                
-            }
+            DocumentCommand::Save(_file) => {}
         }
     }
 
@@ -381,6 +383,7 @@ impl DrawState<'_> {
 }
 
 impl DrawState<'_> {
+    #[allow(clippy::too_many_arguments)]
     fn update_cursor(
         &self,
         selection_color: &Color,
@@ -551,18 +554,22 @@ fn get_cursor_rect(words: &[Word], line: &Line, char_idx: usize, ctx: &Context) 
         let graphemes = word.word.grapheme_indices(true).collect::<Vec<_>>();
         let len = graphemes.len();
 
-        if curr + len < char_idx {
-            curr += len + 1;
-            continue;
-        } else if curr + len == char_idx {
-            curr += len;
-            prev_x = Some(
-                word.glyphs_views
-                    .last()
-                    .map(|glyph| glyph.primitive.get_rect().right_bottom.x)
-                    .unwrap_or(ctx.page_content_rect.x()),
-            );
-            continue;
+        match (curr + len).cmp(&char_idx) {
+            Ordering::Less => {
+                curr += len + 1;
+                continue;
+            }
+            Ordering::Equal => {
+                curr += len;
+                prev_x = Some(
+                    word.glyphs_views
+                        .last()
+                        .map(|glyph| glyph.primitive.get_rect().right_bottom.x)
+                        .unwrap_or(ctx.page_content_rect.x()),
+                );
+                continue;
+            }
+            _ => {}
         }
 
         let mut idx = char_idx - curr;
@@ -1040,9 +1047,9 @@ impl DocumentDraw {
                 let word = &mut paragraph.words[offset + word_idx];
                 word.word.push_str(data.as_str());
                 let len = data.len();
-                word.glyphs_views
-                    .last_mut()
-                    .map(|last| last.word_range.end += len);
+                if let Some(last) = word.glyphs_views.last_mut() {
+                    last.word_range.end += len;
+                }
                 result.push((cursor.par_idx, offset + word_idx));
             }
             CursorTargetIdx::Nothing => {}
@@ -1127,33 +1134,31 @@ impl DocumentDraw {
                 let word = &mut paragraph.words[offset + word_idx];
                 if word.word.len() == 1 {
                     paragraph.words.remove(offset + word_idx);
-                } else {
-                    if let Some((w_idx, grapheme)) =
-                        word.word.grapheme_indices(true).collect::<Vec<_>>().last()
-                    {
-                        let start = *w_idx;
-                        let end = start + grapheme.len();
-                        let idx = end;
+                } else if let Some((w_idx, grapheme)) =
+                    word.word.grapheme_indices(true).collect::<Vec<_>>().last()
+                {
+                    let start = *w_idx;
+                    let end = start + grapheme.len();
+                    let idx = end;
 
-                        for glyphs_view in &mut word.glyphs_views {
-                            if glyphs_view.word_range.start >= idx
-                                && glyphs_view.word_range.start != 0
-                            {
-                                glyphs_view.word_range.start -=
-                                    (start as i64 - end as i64).max(0) as usize;
-                            }
-                            if glyphs_view.word_range.end >= idx {
-                                glyphs_view.word_range.end -=
-                                    (start as i64 - end as i64).max(0) as usize;
-                            }
+                    for glyphs_view in &mut word.glyphs_views {
+                        if glyphs_view.word_range.start >= idx && glyphs_view.word_range.start != 0
+                        {
+                            glyphs_view.word_range.start -=
+                                (start as i64 - end as i64).max(0) as usize;
                         }
-
-                        word.word = format!("{}{}", &word.word[..start], &word.word[end..]);
-                        word.clear_glyphs();
-                        result.push((cursor.par_idx, offset + word_idx));
+                        if glyphs_view.word_range.end >= idx {
+                            glyphs_view.word_range.end -=
+                                (start as i64 - end as i64).max(0) as usize;
+                        }
                     }
+
+                    word.word = format!("{}{}", &word.word[..start], &word.word[end..]);
+                    word.clear_glyphs();
+                    result.push((cursor.par_idx, offset + word_idx));
                 }
             }
+
             CursorTargetIdx::Nothing => {}
         }
         result
@@ -1496,16 +1501,14 @@ impl Cursor {
                         Ordering::Less => Outside,
                         Ordering::Greater => End,
                     }
+                } else if (line_idx <= start.line_idx && start.par_idx == par_idx)
+                    || par_idx < start.par_idx
+                    || (line_idx >= end.line_idx && end.par_idx == par_idx)
+                    || par_idx > end.par_idx
+                {
+                    Outside
                 } else {
-                    if (line_idx <= start.line_idx && start.par_idx == par_idx)
-                        || par_idx < start.par_idx
-                        || (line_idx >= end.line_idx && end.par_idx == par_idx)
-                        || par_idx > end.par_idx
-                    {
-                        Outside
-                    } else {
-                        Inside
-                    }
+                    Inside
                 }
             }
         }

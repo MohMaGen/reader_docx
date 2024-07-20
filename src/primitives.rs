@@ -406,7 +406,7 @@ impl Primitive {
         )
     }
 
-    pub fn get_rect_mut<'prim>(&'prim mut self) -> Option<&'prim mut math::Rectangle> {
+    pub fn get_rect_mut(&mut self) -> Option<&mut math::Rectangle> {
         match self {
             Primitive {
                 prop: PrimitiveProperties::Rect { rect, .. },
@@ -432,7 +432,7 @@ impl Primitive {
 
     pub fn get_glyphs(&self) -> Option<&[PositionedGlyph]> {
         match &self.wgpu {
-            PrimitiveWgpu::Text { glyphs, .. } => Some(&glyphs),
+            PrimitiveWgpu::Text { glyphs, .. } => Some(glyphs),
             _ => None,
         }
     }
