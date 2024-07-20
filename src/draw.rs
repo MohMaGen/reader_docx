@@ -57,8 +57,11 @@ impl App<'_> {
 
         log::info!("\n-- UPDATE STATE --\n");
         if let Some(document_draw) = self.document_draw.as_mut() {
-            while let Some(command) = self.document_commands.pop() {
-                draw_state.process_document_command(document_draw, command);
+            {
+                let mut document_commands = self.document_commands.lock().to_anyhow()?;
+                while let Some(command) = document_commands.pop() {
+                    draw_state.process_document_command(document_draw, command);
+                }
             }
             draw_state.update_document(document_draw)?;
         }

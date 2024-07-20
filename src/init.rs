@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::{draw::TextPipeline, state::State, uniforms::Uniforms2d, vertex::Vertex2d};
 use wgpu::util::DeviceExt;
@@ -16,7 +16,7 @@ impl App<'_> {
             window: None,
             draw_state: None,
             document_draw: None,
-            document_commands: Vec::new(),
+            document_commands: Arc::new(Mutex::new(Vec::new())),
             ui_primitives: crate::ui::UiState::default(),
         }
     }

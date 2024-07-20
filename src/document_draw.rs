@@ -1,8 +1,5 @@
 use std::{
-    cmp::Ordering,
-    collections::{HashMap, VecDeque},
-    ops::Range,
-    sync::Arc,
+    cmp::Ordering, collections::{HashMap, VecDeque}, ops::Range, path::PathBuf, sync::Arc
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -103,6 +100,7 @@ pub enum DocumentCommand {
     Remove,
     Add(String),
     AddSpace,
+    Save(PathBuf)
 }
 
 pub enum VerticalSpacing {
@@ -366,6 +364,9 @@ impl DrawState<'_> {
                 document_draw.clear_document();
                 let _ = self.update_document(document_draw);
                 document_draw.change_char(1);
+            }
+            DocumentCommand::Save(file) => {
+                
             }
         }
     }

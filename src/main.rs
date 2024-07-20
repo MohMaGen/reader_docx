@@ -27,12 +27,14 @@ pub mod uniforms;
 pub mod vertex;
 pub mod font;
 
+pub type DocumentCommands = Arc<Mutex<Vec<DocumentCommand>>>;
+
 pub struct App<'window> {
     pub window: Option<Arc<Window>>,
     pub state: Arc<Mutex<state::State>>,
     pub draw_state: Option<DrawState<'window>>,
     pub document_draw: Option<Box<DocumentDraw>>,
-    pub document_commands: Vec<DocumentCommand>,
+    pub document_commands: DocumentCommands,
     pub ui_primitives: UiState,
 }
 
@@ -86,16 +88,9 @@ impl ApplicationHandler for App<'_> {
                 event_loop.exit();
             }
             winit::event::WindowEvent::KeyboardInput { event, .. } => {
-                if let Some(draw_state) = self.draw_state.as_ref() {
-                    keyboard_input::keyboard_input(
-                        Arc::clone(&self.state),
-                        event,
-                        &mut self.document_commands,
-                        &draw_state
-                    )
-                    .log_if_error();
-
-                    draw_state.window.request_redraw();
+                if self.draw_state.is_some() {
+                    self.keyboard_input(event).log_if_error();
+                    self.draw_state.as_ref().unwrap().window.request_redraw();
                 }
             }
             _ => {}

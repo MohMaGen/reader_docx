@@ -8,185 +8,264 @@ use anyhow::Context;
 use minidom::Element;
 use winit::{
     event::ElementState,
-    keyboard::{KeyCode, PhysicalKey}, window::Window,
+    keyboard::{KeyCode, PhysicalKey},
+    window::Window,
 };
 
 use crate::{
-    document_draw::{CursorPos, DocumentCommand}, docx_document::DocxDocument, draw::DrawState, log_helper::LogHelper, state::{self, Mode, State}, traits::AsAnyhow
+    document_draw::DocumentCommand,
+    docx_document::DocxDocument,
+    log_helper::LogHelper,
+    state::{self, Mode, State},
+    traits::AsAnyhow,
+    App,
 };
 
-pub fn keyboard_input(
-    state: Arc<Mutex<State>>,
-    event: winit::event::KeyEvent,
-    document_commands: &mut Vec<DocumentCommand>,
-    draw_state: &DrawState,
-) -> anyhow::Result<()> {
-    if event.repeat {
-        return Ok(());
-    }
-    if event.state == ElementState::Released {
-        return Ok(());
-    }
-
-    let mode = state.lock().to_anyhow()?.mode;
-
-    match mode {
-        Mode::View => {
-            if normal_mode_on_escape(&event, Arc::clone(&state))? {
-                return Ok(());
-            }
-
-            scale(&event, document_commands);
-            scroll(&event, document_commands);
+impl App<'_> {
+    pub fn keyboard_input(&mut self, event: winit::event::KeyEvent) -> anyhow::Result<()> {
+        if event.repeat {
+            return Ok(());
         }
-        Mode::Normal => {
-            if normal_movement(&event, document_commands) {
-                return Ok(());
-            }
+        if event.state == ElementState::Released {
+            return Ok(());
+        }
 
-            match event.physical_key {
-                PhysicalKey::Code(KeyCode::KeyI) => {
-                    let mut state = state.lock().to_anyhow()?;
-                    state.mode = Mode::Edit;
+        let mode = self.state.lock().to_anyhow()?.mode;
+
+        match mode {
+            Mode::View => {
+                if self.normal_mode_on_escape(&event)? {
                     return Ok(());
                 }
-                _ => {}
+
+                self.scale(&event);
+                self.scroll(&event);
             }
-
-            match event.text {
-                Some(s) if s == ":" => {
-                    let mut state = state.lock().to_anyhow()?;
-                    state.mode = Mode::CommandInput;
-                    state.console_input = ":".into();
-                }
-                _ => {}
-            }
-        }
-
-        Mode::CommandInput => {
-            if normal_mode_on_escape(&event, Arc::clone(&state))? {
-                return Ok(());
-            }
-
-            if process_command_enter(&event, Arc::clone(&state), Arc::clone(&draw_state.window))? {
-                return Ok(());
-            }
-
-            process_command_input(&event, Arc::clone(&state))?;
-        }
-
-        Mode::Edit => {
-            if normal_mode_on_escape(&event, Arc::clone(&state))? {
-                return Ok(());
-            }
-
-            match event.physical_key {
-                PhysicalKey::Code(KeyCode::Backspace) => {
-                    document_commands.push(DocumentCommand::Remove);
+            Mode::Normal => {
+                if self.normal_movement(&event)? {
                     return Ok(());
                 }
-                _ => {}
-            }
 
-            match event.text {
-                Some(s) if !s.trim().is_empty() => {
-                    document_commands.push(DocumentCommand::Add(s.to_string()));
+                match event.physical_key {
+                    PhysicalKey::Code(KeyCode::KeyI) => {
+                        let mut state = self.state.lock().to_anyhow()?;
+                        state.mode = Mode::Edit;
+                        return Ok(());
+                    }
+                    _ => {}
                 }
-                Some(s) if s.trim().is_empty() => {
-                    document_commands.push(DocumentCommand::AddSpace);
+
+                match event.text {
+                    Some(s) if s == ":" => {
+                        let mut state = self.state.lock().to_anyhow()?;
+                        state.mode = Mode::CommandInput;
+                        state.console_input = ":".into();
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
-        }
-        _ => {}
-    }
-    Ok(())
-}
 
-fn normal_movement(
-    event: &winit::event::KeyEvent,
-    document_commands: &mut Vec<DocumentCommand>,
-) -> bool {
-    match event.physical_key {
-        PhysicalKey::Code(KeyCode::Backspace) => {
-            document_commands.push(DocumentCommand::Remove);
-            true
-        }
-        PhysicalKey::Code(KeyCode::KeyL) => {
-            document_commands.push(DocumentCommand::ChangeCharIdx(1));
-            true
-        }
-        PhysicalKey::Code(KeyCode::KeyH) => {
-            document_commands.push(DocumentCommand::ChangeCharIdx(-1));
-            true
-        }
-        PhysicalKey::Code(KeyCode::KeyJ) => {
-            document_commands.push(DocumentCommand::ChangeLineIdx(1));
-            true
-        }
-        PhysicalKey::Code(KeyCode::KeyK) => {
-            document_commands.push(DocumentCommand::ChangeLineIdx(-1));
-            true
-        }
-        _ => false,
-    }
-}
+            Mode::CommandInput => {
+                if self.normal_mode_on_escape(&event)? {
+                    return Ok(());
+                }
 
-fn process_command_enter(
-    event: &winit::event::KeyEvent,
-    state: Arc<Mutex<State>>,
-    window: Arc<Window>,
-) -> Result<bool, anyhow::Error> {
-    if let PhysicalKey::Code(KeyCode::Enter) = event.physical_key {
-        let command = {
-            let mut state = state.lock().to_anyhow()?;
-            state.mode = Mode::Normal;
-            let command = state.console_input.clone();
-            state.console_input = String::new();
+                if self.process_command_enter(&event)? {
+                    return Ok(());
+                }
 
-            command
-        };
-
-        match &command.trim()[1..5] {
-            "view" => {
-                let mut state = state.lock().to_anyhow()?;
-                state.console_input = "".into();
-                state.mode = Mode::View;
+                self.process_command_input(&event)?;
             }
-            "open" => {
-                let state = Arc::clone(&state);
-                std::thread::spawn(load_file_and_write_to_state(state, window));
+
+            Mode::Edit => {
+                if self.normal_mode_on_escape(&event)? {
+                    return Ok(());
+                }
+
+                match event.physical_key {
+                    PhysicalKey::Code(KeyCode::Backspace) => {
+                        self.document_commands
+                            .lock()
+                            .to_anyhow()?
+                            .push(DocumentCommand::Remove);
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+
+                match event.text {
+                    Some(s) if !s.trim().is_empty() => {
+                        self.document_commands
+                            .lock()
+                            .to_anyhow()?
+                            .push(DocumentCommand::Add(s.to_string()));
+                    }
+                    Some(s) if s.trim().is_empty() => {
+                        self.document_commands
+                            .lock()
+                            .to_anyhow()?
+                            .push(DocumentCommand::AddSpace);
+                    }
+                    _ => {}
+                }
             }
-            //"save" => {
-            //    std::thread::spawn(save_docx_file(state));
-            //}
             _ => {}
         }
+        Ok(())
     }
 
-    Ok(false)
-}
-
-fn scale(event: &winit::event::KeyEvent, document_commands: &mut Vec<DocumentCommand>) {
-    match event.text.as_ref() {
-        Some(input) if input == "-" => {
-            document_commands.push(DocumentCommand::RatioScale(0.8));
+    fn normal_movement(&mut self, event: &winit::event::KeyEvent) -> anyhow::Result<bool> {
+        match event.physical_key {
+            PhysicalKey::Code(KeyCode::Backspace) => {
+                self.document_commands
+                    .lock()
+                    .to_anyhow()?
+                    .push(DocumentCommand::Remove);
+                Ok(true)
+            }
+            PhysicalKey::Code(KeyCode::KeyL) => {
+                self.document_commands
+                    .lock()
+                    .to_anyhow()?
+                    .push(DocumentCommand::ChangeCharIdx(1));
+                Ok(true)
+            }
+            PhysicalKey::Code(KeyCode::KeyH) => {
+                self.document_commands
+                    .lock()
+                    .to_anyhow()?
+                    .push(DocumentCommand::ChangeCharIdx(-1));
+                Ok(true)
+            }
+            PhysicalKey::Code(KeyCode::KeyJ) => {
+                self.document_commands
+                    .lock()
+                    .to_anyhow()?
+                    .push(DocumentCommand::ChangeLineIdx(1));
+                Ok(true)
+            }
+            PhysicalKey::Code(KeyCode::KeyK) => {
+                self.document_commands
+                    .lock()
+                    .to_anyhow()?
+                    .push(DocumentCommand::ChangeLineIdx(-1));
+                Ok(true)
+            }
+            _ => Ok(false),
         }
-        Some(input) if input == "=" => {
-            document_commands.push(DocumentCommand::NewScale(0.5));
-        }
-        Some(input) if input == "+" => {
-            document_commands.push(DocumentCommand::RatioScale(1.2));
-        }
-        _ => {}
     }
-}
 
-fn scroll(event: &winit::event::KeyEvent, document_draw: &mut Vec<DocumentCommand>) {
-    match event.physical_key {
-        PhysicalKey::Code(KeyCode::KeyK) => document_draw.push(DocumentCommand::DeltaScroll(100.)),
-        PhysicalKey::Code(KeyCode::KeyJ) => document_draw.push(DocumentCommand::DeltaScroll(-100.)),
-        _ => {}
+    fn process_command_enter(
+        &mut self,
+        event: &winit::event::KeyEvent,
+    ) -> Result<bool, anyhow::Error> {
+        if let PhysicalKey::Code(KeyCode::Enter) = event.physical_key {
+            let command = {
+                let mut state = self.state.lock().to_anyhow()?;
+                state.mode = Mode::Normal;
+                let command = state.console_input.clone();
+                state.console_input = String::new();
+
+                command
+            };
+
+            match &command.trim()[1..5] {
+                "view" => {
+                    let mut state = self.state.lock().to_anyhow()?;
+                    state.console_input = "".into();
+                    state.mode = Mode::View;
+                }
+                "open" => {
+                    let state = Arc::clone(&self.state);
+                    std::thread::spawn(load_file_and_write_to_state(
+                        state,
+                        Arc::clone(&self.draw_state.as_ref().context("no draw state")?.window),
+                    ));
+                }
+                "save" => {}
+                _ => {}
+            }
+        }
+
+        Ok(false)
+    }
+    fn scale(&self, event: &winit::event::KeyEvent) -> anyhow::Result<()> {
+        match event.text.as_ref() {
+            Some(input) if input == "-" => {
+                self.document_commands
+                    .lock()
+                    .to_anyhow()?
+                    .push(DocumentCommand::RatioScale(0.8));
+            }
+            Some(input) if input == "=" => {
+                self.document_commands
+                    .lock()
+                    .to_anyhow()?
+                    .push(DocumentCommand::NewScale(0.5));
+            }
+            Some(input) if input == "+" => {
+                self.document_commands
+                    .lock()
+                    .to_anyhow()?
+                    .push(DocumentCommand::RatioScale(1.2));
+            }
+            _ => {}
+        };
+        Ok(())
+    }
+
+    fn scroll(&self, event: &winit::event::KeyEvent) -> anyhow::Result<()> {
+        match event.physical_key {
+            PhysicalKey::Code(KeyCode::KeyK) => self
+                .document_commands
+                .lock()
+                .to_anyhow()?
+                .push(DocumentCommand::DeltaScroll(100.)),
+            PhysicalKey::Code(KeyCode::KeyJ) => self
+                .document_commands
+                .lock()
+                .to_anyhow()?
+                .push(DocumentCommand::DeltaScroll(-100.)),
+            _ => {}
+        };
+        Ok(())
+    }
+    fn process_command_input(
+        &mut self,
+        event: &winit::event::KeyEvent,
+    ) -> Result<(), anyhow::Error> {
+        if let PhysicalKey::Code(KeyCode::Backspace) = event.physical_key {
+            let mut state = self.state.lock().to_anyhow()?;
+            if state.console_input.len() > 1 {
+                state.console_input.pop();
+            }
+            return Ok(());
+        }
+
+        if let Some(s) = event.clone().text {
+            let mut state = self.state.lock().to_anyhow()?;
+            state.console_input = format!("{}{}", state.console_input, s);
+        }
+
+        Ok(())
+    }
+
+    fn normal_mode_on_escape(
+        &mut self,
+        event: &winit::event::KeyEvent,
+    ) -> Result<bool, anyhow::Error> {
+        use winit::keyboard::{KeyCode, PhysicalKey};
+        Ok(match event.physical_key {
+            PhysicalKey::Code(KeyCode::Escape) => {
+                {
+                    let mut state = self.state.lock().to_anyhow()?;
+                    state.mode = Mode::Normal;
+                    state.console_input = "".into();
+                }
+                true
+            }
+            _ => false,
+        })
     }
 }
 
@@ -207,44 +286,6 @@ fn load_file_and_write_to_state(state: Arc<Mutex<State>>, window: Arc<Window>) -
         })()
         .log_if_error();
     }
-}
-
-fn process_command_input(
-    event: &winit::event::KeyEvent,
-    state: Arc<Mutex<State>>,
-) -> Result<(), anyhow::Error> {
-    if let PhysicalKey::Code(KeyCode::Backspace) = event.physical_key {
-        let mut state = state.lock().to_anyhow()?;
-        if state.console_input.len() > 1 {
-            state.console_input.pop();
-        }
-        return Ok(());
-    }
-
-    if let Some(s) = event.clone().text {
-        let mut state = state.lock().to_anyhow()?;
-        state.console_input = format!("{}{}", state.console_input, s);
-    }
-
-    Ok(())
-}
-
-fn normal_mode_on_escape(
-    event: &winit::event::KeyEvent,
-    state: Arc<Mutex<State>>,
-) -> Result<bool, anyhow::Error> {
-    use winit::keyboard::{KeyCode, PhysicalKey};
-    Ok(match event.physical_key {
-        PhysicalKey::Code(KeyCode::Escape) => {
-            {
-                let mut state = state.lock().to_anyhow()?;
-                state.mode = Mode::Normal;
-                state.console_input = "".into();
-            }
-            true
-        }
-        _ => false,
-    })
 }
 
 pub async fn load_docx() -> anyhow::Result<(Arc<Box<DocxDocument>>, PathBuf)> {
