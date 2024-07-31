@@ -193,8 +193,9 @@ pub struct SpacingProperties {
     pub before: Option<f32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum LineRule {
+    #[default]
     Auto,
 }
 
@@ -209,6 +210,12 @@ impl FromStr for LineRule {
     }
 }
 
+impl std::fmt::Display for LineRule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "auto")
+    }
+}
+
 #[derive(Default, Debug, Clone)]
 pub enum Justification {
     #[default]
@@ -216,6 +223,17 @@ pub enum Justification {
     End,
     Center,
     Width,
+}
+
+impl std::fmt::Display for Justification {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Justification::Start => write!(f, "start"),
+            Justification::End => write!(f, "end"),
+            Justification::Center => write!(f, "center"),
+            Justification::Width => write!(f, "width"),
+        }
+    }
 }
 
 impl FromStr for Justification {

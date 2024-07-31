@@ -18,7 +18,7 @@ use crate::{
     log_helper::LogHelper,
     state::{self, Mode, State},
     traits::AsAnyhow,
-    App,
+    App, DocumentCommands,
 };
 
 impl App<'_> {
@@ -175,7 +175,9 @@ impl App<'_> {
                         Arc::clone(&self.draw_state.as_ref().context("no draw state")?.window),
                     ));
                 }
-                "save" => {}
+                "save" => {
+                    std::thread::spawn(save_document(Arc::clone(&self.document_commands)));
+                }
                 _ => {}
             }
         }
@@ -317,4 +319,24 @@ fn get_element(archive: &Vec<u8>, file: &str) -> anyhow::Result<Element> {
     document
         .parse()
         .context("Failed to parse document.xml file")
+}
+
+fn save_document(commands: DocumentCommands) -> impl FnOnce() {
+    move || {
+        (|| {
+            let file = rfd::FileDialog::new()
+                .set_can_create_directories(true)
+                .save_file()
+                .context("Failed to choose file to create")?;
+
+            commands
+                .lock()
+                .to_anyhow()
+                .context("[save document]")?
+                .push(DocumentCommand::Save(file));
+
+            Ok(())
+        })()
+        .log_if_error()
+    }
 }

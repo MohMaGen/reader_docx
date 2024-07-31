@@ -1,3 +1,4 @@
+use anyhow::Context;
 use std::{
     cmp::Ordering,
     collections::{HashMap, VecDeque},
@@ -9,7 +10,10 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     colorscheme::ColorScheme,
-    docx_document::{self, Color, TextNode, TextProperties},
+    docx_document::{
+        self, Color, Justification, ParagraphProperties, SpacingProperties, TextNode,
+        TextProperties,
+    },
     draw::DrawState,
     font, math,
     primitives::{PlainTextProperties, Primitive, PrimitiveProperties},
@@ -85,7 +89,7 @@ pub struct GlyphsView {
     pub primitive: Primitive,
 }
 
-struct Context {
+struct DrawStateCtx {
     page_content_rect: math::Rectangle,
     page_properties: PageProperties,
     bg_color: docx_document::Color,
@@ -141,7 +145,7 @@ impl DrawState<'_> {
         let page_rect = first_page.primitive.get_rect();
         let page_content_rect = page_rect.add_paddings(page_properties.paddings);
 
-        let ctx = Context {
+        let ctx = DrawStateCtx {
             page_content_rect,
             page_properties,
             bg_color: colorscheme.page_bg_color,
@@ -202,7 +206,7 @@ impl DrawState<'_> {
         document_draw.pages = vec![first_page];
         document_draw.cursor_prims = Vec::new();
 
-        let mut ctx = Context {
+        let mut ctx = DrawStateCtx {
             page_content_rect,
             page_properties,
             bg_color,
@@ -369,7 +373,7 @@ impl DrawState<'_> {
                 let _ = self.update_document(document_draw);
                 document_draw.change_char(1);
             }
-            DocumentCommand::Save(_file) => {}
+            DocumentCommand::Save(file) => {}
         }
     }
 
@@ -393,7 +397,7 @@ impl DrawState<'_> {
         line_idx: usize,
         paragraph: &Paragraph,
         line: &Line,
-        ctx: &Context,
+        ctx: &DrawStateCtx,
     ) {
         match cursor.match_par_line(par_idx, line_idx) {
             LineRelativePosition::Exact(pos) => {
@@ -442,7 +446,7 @@ impl DrawState<'_> {
         words: &mut [Word],
         fonts_collection: &mut T,
         paragraph_tp: TextProperties,
-        ctx: &Context,
+        ctx: &DrawStateCtx,
     ) -> Result<(), anyhow::Error> {
         for word in words.iter_mut() {
             self.create_word_prim(word, fonts_collection, &paragraph_tp, ctx.scale)?;
@@ -493,7 +497,7 @@ impl DrawState<'_> {
         Ok(())
     }
 
-    fn vertical_offset_and_push(&self, ctx: &mut Context, pages: &mut Vec<Page>, delta: f32) {
+    fn vertical_offset_and_push(&self, ctx: &mut DrawStateCtx, pages: &mut Vec<Page>, delta: f32) {
         if delta < ctx.page_content_rect.height() {
             ctx.page_content_rect = ctx.page_content_rect.move_left_top((0., delta));
         } else {
@@ -533,7 +537,12 @@ impl DrawState<'_> {
     }
 }
 
-fn get_cursor_rect(words: &[Word], line: &Line, char_idx: usize, ctx: &Context) -> math::Rectangle {
+fn get_cursor_rect(
+    words: &[Word],
+    line: &Line,
+    char_idx: usize,
+    ctx: &DrawStateCtx,
+) -> math::Rectangle {
     let mut curr = 0;
     let mut prev_x = None;
     for word in &words[line.range.clone()] {
@@ -620,7 +629,7 @@ impl DrawState<'_> {
 }
 fn get_line_vertical_metrics(
     justification: Option<docx_document::Justification>,
-    ctx: &Context,
+    ctx: &DrawStateCtx,
     line: &Line,
     vertical_space: f32,
 ) -> (f32, VerticalSpacing) {
@@ -645,7 +654,7 @@ fn get_line_vertical_metrics(
 fn update_line(
     words: &mut [Word],
     line: &Line,
-    ctx: &Context,
+    ctx: &DrawStateCtx,
     mut vertical_offset: f32,
     vertical_space: VerticalSpacing,
 ) {
@@ -674,7 +683,7 @@ fn update_line(
     }
 }
 
-fn get_lines(words: &[Word], ctx: &Context, vertical_space: f32) -> Vec<Line> {
+fn get_lines(words: &[Word], ctx: &DrawStateCtx, vertical_space: f32) -> Vec<Line> {
     let mut lines = Vec::new();
     let mut curr_line = Line {
         height: 0.,
@@ -900,6 +909,57 @@ pub enum CursorTargetMut<'a> {
 }
 
 impl DocumentDraw {
+    const DOCUMENT_DEFAULT: &'static str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml" mc:Ignorable="w14 wp14 w15">
+<w:body>
+</w:body>
+</w:document>"#;
+
+    pub fn get_document_element(&self) -> anyhow::Result<minidom::Element> {
+        use minidom::NSChoice::Any;
+
+        let mut document = Self::DOCUMENT_DEFAULT
+            .parse::<minidom::Element>()
+            .context("Failed to parse default document. :(")?;
+
+        let mut body = document
+            .get_child_mut("body", Any)
+            .context("Can't find body. [How this even possible??]")?;
+
+        let process_rpr = |rpr: TextProperties| minidom::Element::builder("rPr", "w")
+            .build();
+        let process_spacing = |spacing: SpacingProperties| {
+            minidom::Element::builder("spacing", "w")
+                .attr("w:line", spacing.line.unwrap_or(1.).to_string())
+                .attr("w:line", spacing.line_rule.unwrap_or_default().to_string())
+                .attr("w:line", spacing.after.unwrap_or(1.).to_string())
+                .attr("w:line", spacing.before.unwrap_or(1.).to_string())
+                .build()
+        };
+        let process_ppr = |ppr: ParagraphProperties| {
+            minidom::Element::builder("pPr", "w")
+                .append(minidom::Element::builder("pStyle", "w").attr("w:val", "Normal"))
+                .append(minidom::Element::builder("bidi", "w").attr("w:val", "0"))
+                .append(minidom::Element::builder("jc", "w").attr(
+                    "w:val",
+                    ppr.justify.map_or("start".to_string(), |jc| jc.to_string()),
+                ))
+                .append(process_rpr(ppr.text_properties.unwrap_or_default()))
+                .append(process_spacing(ppr.spacing))
+                .build()
+        };
+
+        for par in &self.paragraphs {
+            body.append_child(
+                minidom::Element::builder("p", "w")
+                    .append(process_ppr(par.properties.clone()))
+                    .build(),
+            );
+        }
+
+        Ok(document)
+    }
+
     pub fn clear_document(&mut self) {
         let mut idx = 0;
         while idx < self.paragraphs.len() {
