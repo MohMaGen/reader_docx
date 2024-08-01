@@ -11,7 +11,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::{
     colorscheme::ColorScheme,
     docx_document::{
-        self, Color, Justification, ParagraphProperties, SpacingProperties, TextNode,
+        self, Color, ParagraphProperties, SectrOfProperties, SpacingProperties, TextNode,
         TextProperties,
     },
     draw::DrawState,
@@ -30,6 +30,7 @@ pub struct DocumentDraw {
     pub selection_color: Color,
     pub cursor: Cursor,
     pub cursor_prims: Vec<Primitive>,
+    pub sect_properties: SectrOfProperties,
 }
 
 #[derive(Debug)]
@@ -918,16 +919,50 @@ impl DocumentDraw {
     pub fn get_document_element(&self) -> anyhow::Result<minidom::Element> {
         use minidom::NSChoice::Any;
 
-        let mut document = Self::DOCUMENT_DEFAULT
-            .parse::<minidom::Element>()
-            .context("Failed to parse default document. :(")?;
+        let process_rpr = |rpr: TextProperties| {
+            let builder = minidom::Element::builder("rPr", "w");
+            let builder = match rpr.weight {
+                docx_document::TextWeight::Regular => builder,
+                docx_document::TextWeight::Bold => {
+                    builder.append(minidom::Element::builder("b", "w"))
+                }
+            };
+            let builder = if rpr.italic {
+                builder.append(minidom::Element::builder("i", "w"))
+            } else {
+                builder
+            };
 
-        let mut body = document
-            .get_child_mut("body", Any)
-            .context("Can't find body. [How this even possible??]")?;
-
-        let process_rpr = |rpr: TextProperties| minidom::Element::builder("rPr", "w")
-            .build();
+            let builder = if let Some(size) = &rpr.size {
+                builder.append(minidom::Element::builder("sz", "w").attr("w:val", size.to_string()))
+            } else {
+                builder
+            };
+            let builder = if let Some(size_cs) = &rpr.size {
+                builder.append(
+                    minidom::Element::builder("szCs", "w").attr("w:val", size_cs.to_string()),
+                )
+            } else {
+                builder
+            };
+            let builder = if let Some(font_name) = &rpr.font_name {
+                builder.append(
+                    minidom::Element::builder("rFonts", "w")
+                        .attr("w:ascii", font_name)
+                        .attr("w:hAnsi", font_name)
+                        .attr("w:cs", font_name),
+                )
+            } else {
+                builder
+            };
+            if let Some(color) = &rpr.color {
+                builder.append(
+                    minidom::Element::builder("color", "w").attr("w:val", color.to_xml_val()),
+                )
+            } else {
+                builder
+            }
+        };
         let process_spacing = |spacing: SpacingProperties| {
             minidom::Element::builder("spacing", "w")
                 .attr("w:line", spacing.line.unwrap_or(1.).to_string())
@@ -949,12 +984,96 @@ impl DocumentDraw {
                 .build()
         };
 
-        for par in &self.paragraphs {
-            body.append_child(
-                minidom::Element::builder("p", "w")
-                    .append(process_ppr(par.properties.clone()))
-                    .build(),
-            );
+        let process_sect_of_properties = |sect_properties: SectrOfProperties| {
+            let to_string_mul_by = |num: f32, mul: f32| ((num * mul) as usize).to_string();
+            let builder = minidom::Element::builder("sectPr", "w");
+
+            let builder = if let Some(num_type) = &sect_properties.page_num_type {
+                builder.append(
+                    minidom::Element::builder("pgNumType", "w").attr("w:fmt", num_type.to_string()),
+                )
+            } else {
+                builder
+            };
+
+            let builder = if let Some(page_type) = &sect_properties.page_type {
+                builder.append(
+                    minidom::Element::builder("type", "w").attr("w:val", page_type.to_string()),
+                )
+            } else {
+                builder
+            };
+
+            let builder = if let Some(form_prot) = &sect_properties.form_prot {
+                builder.append(
+                    minidom::Element::builder("formProt", "w").attr("w:val", form_prot.to_string()),
+                )
+            } else {
+                builder
+            };
+
+            builder
+                .append(
+                    minidom::Element::builder("textDirection", "w")
+                        .attr("w:val", sect_properties.text_direction.to_string()),
+                )
+                .append(
+                    minidom::Element::builder("pgSz", "w")
+                        .attr("w:w", to_string_mul_by(sect_properties.get_size().0, 10.))
+                        .attr("w:h", to_string_mul_by(sect_properties.get_size().1, 10.)),
+                )
+                .append(
+                    minidom::Element::builder("pgMar", "w")
+                        .attr(
+                            "w:top",
+                            to_string_mul_by(sect_properties.page_margin.top, 10.),
+                        )
+                        .attr(
+                            "w:right",
+                            to_string_mul_by(sect_properties.page_margin.right, 10.),
+                        )
+                        .attr(
+                            "w:bottom",
+                            to_string_mul_by(sect_properties.page_margin.bottom, 10.),
+                        )
+                        .attr(
+                            "w:left",
+                            to_string_mul_by(sect_properties.page_margin.left, 10.),
+                        )
+                        .attr(
+                            "w:header",
+                            to_string_mul_by(sect_properties.page_margin.header, 10.),
+                        )
+                        .attr(
+                            "w:footer",
+                            to_string_mul_by(sect_properties.page_margin.footer, 10.),
+                        )
+                        .attr(
+                            "w:gutter",
+                            to_string_mul_by(sect_properties.page_margin.gutter, 10.),
+                        ),
+                )
+                .build()
+        };
+
+        let mut document = Self::DOCUMENT_DEFAULT
+            .parse::<minidom::Element>()
+            .context("Failed to parse default document. :(")?;
+
+        {
+            let body = document
+                .get_child_mut("body", Any)
+                .context("Can't find body. [How this even possible??]")?;
+
+            for par in &self.paragraphs {
+                body.append_child(
+                    minidom::Element::builder("p", "w")
+                        .append(process_ppr(par.properties.clone()))
+                        .build(),
+                );
+            }
+
+            body.append_child(process_sect_of_properties(self.sect_properties.clone()));
         }
 
         Ok(document)
@@ -1464,6 +1583,7 @@ impl Default for DocumentDraw {
             scroll: 100.,
             scale: 1.,
 
+            sect_properties: Default::default(),
             pages: Default::default(),
             fonts: Default::default(),
             paragraphs: Default::default(),

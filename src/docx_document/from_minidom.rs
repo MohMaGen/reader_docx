@@ -8,7 +8,6 @@ use crate::docx_document::{
     ParagraphProperties, SpacingProperties, TextDirection,
 };
 
-
 use super::{Color, DocxDocument, FontTable, TextSize, TextWeight};
 
 impl<'a> TryFrom<(&'a minidom::Element, &'a minidom::Element)> for DocxDocument {

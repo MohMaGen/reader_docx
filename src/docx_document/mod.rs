@@ -99,6 +99,21 @@ pub enum TextDirection {
     RightToLeftBottomToTop,
 }
 
+impl std::fmt::Display for TextDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::LeftToRightTopToBottom => "lrTb",
+                Self::LeftToRightBottomToTop => "lrBt",
+                Self::RightToLeftTopToBottom => "rlTb",
+                Self::RightToLeftBottomToTop => "rlBt",
+            }
+        )
+    }
+}
+
 impl FromStr for TextDirection {
     type Err = anyhow::Error;
 
@@ -117,6 +132,12 @@ impl FromStr for TextDirection {
 pub struct FormProt {
     pub val: bool,
 }
+
+impl std::fmt::Display for FormProt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.val)
+    }
+}
 impl FromStr for FormProt {
     type Err = anyhow::Error;
 
@@ -132,6 +153,14 @@ impl FromStr for FormProt {
 #[derive(Debug, Clone)]
 pub enum NumType {
     Decimal,
+}
+
+impl std::fmt::Display for NumType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NumType::Decimal => write!(f, "decimal"),
+        }
+    }
 }
 
 impl FromStr for NumType {
@@ -159,6 +188,14 @@ pub struct PageMargin {
 #[derive(Debug, Clone)]
 pub enum PageType {
     NextPage,
+}
+
+impl std::fmt::Display for PageType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NextPage => write!(f, "nextPage"),
+        }
+    }
 }
 
 impl FromStr for PageType {
@@ -302,6 +339,15 @@ impl Color {
     pub fn rgb(r: f32, g: f32, b: f32) -> Self {
         Self { r, g, b, a: 1.0 }
     }
+
+    pub fn to_xml_val(&self) -> String {
+        format!(
+            "{:02X}{:02X}{:02X}",
+            (self.r * u8::MAX as f32) as u8,
+            (self.g * u8::MAX as f32) as u8,
+            (self.b * u8::MAX as f32) as u8
+        )
+    }
 }
 
 impl From<(f32, f32, f32)> for Color {
@@ -342,6 +388,12 @@ pub enum TextWeight {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextSize(pub f32);
+
+impl std::fmt::Display for TextSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl Default for TextSize {
     fn default() -> Self {

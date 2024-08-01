@@ -4,7 +4,7 @@ use super::{
     TextDirection,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SectrOfProperties {
     pub page_type: Option<PageType>,
     pub page_size: PageSize,
