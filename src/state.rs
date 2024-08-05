@@ -1,5 +1,6 @@
 use std::{path::PathBuf, sync::{Arc, Mutex}};
 
+
 use crate::{colorscheme::ColorScheme, docx_document::DocxDocument};
 
 #[derive(Clone, Default)]
@@ -14,6 +15,7 @@ pub struct State {
 #[derive(Clone, Default)]
 pub struct Document {
     pub document: Arc<Box<DocxDocument>>,
+    pub zip_document: Vec<u8>,
     pub path: PathBuf,
 }
 

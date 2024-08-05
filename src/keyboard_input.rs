@@ -1,6 +1,5 @@
 use std::{
     io::Read,
-    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
@@ -14,7 +13,6 @@ use winit::{
 
 use crate::{
     document_draw::DocumentCommand,
-    docx_document::DocxDocument,
     log_helper::LogHelper,
     state::{self, Mode, State},
     traits::AsAnyhow,
@@ -267,13 +265,13 @@ impl App<'_> {
 fn load_file_and_write_to_state(state: Arc<Mutex<State>>, window: Arc<Window>) -> impl FnOnce() {
     move || {
         (|| {
-            let (document, path) = pollster::block_on(load_docx())?;
+            let document = pollster::block_on(load_docx())?;
 
-            println!("{}", document);
+            println!("{}", document.document);
 
             {
                 let mut state = state.lock().to_anyhow()?;
-                state.document = Some(state::Document { document, path });
+                state.document = Some(document);
             }
             window.request_redraw();
 
@@ -283,7 +281,7 @@ fn load_file_and_write_to_state(state: Arc<Mutex<State>>, window: Arc<Window>) -
     }
 }
 
-pub async fn load_docx() -> anyhow::Result<(Arc<Box<DocxDocument>>, PathBuf)> {
+pub async fn load_docx() -> anyhow::Result<state::Document> {
     let file = rfd::FileDialog::new()
         .set_title("Open a docx file...")
         .add_filter("", &["docx"])
@@ -295,14 +293,15 @@ pub async fn load_docx() -> anyhow::Result<(Arc<Box<DocxDocument>>, PathBuf)> {
     let document = get_element(&archive, "word/document.xml")?;
     let fonts = get_element(&archive, "word/fontTable.xml")?;
 
-    Ok((
-        Arc::new(Box::new(
+    Ok(state::Document {
+        document: Arc::new(Box::new(
             (&document, &fonts)
                 .try_into()
                 .context("failed to parse docx documnet")?,
         )),
-        file,
-    ))
+        zip_document: archive,
+        path: file,
+    })
 }
 
 fn get_element(archive: &Vec<u8>, file: &str) -> anyhow::Result<Element> {

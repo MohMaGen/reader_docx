@@ -910,11 +910,15 @@ pub enum CursorTargetMut<'a> {
 }
 
 impl DocumentDraw {
-    const DOCUMENT_DEFAULT: &'static str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml" mc:Ignorable="w14 wp14 w15">
-<w:body>
-</w:body>
-</w:document>"#;
+    const WORD_DOCUMENT_DEFAULT: &'static str = include_str!("./docx/word/document.xml");
+    // const WORD_RELS: &'static [u8] = include_bytes!("./docx/word/_rels/document.xml.rels");
+    // const WORD_FONT_TABLE: &'static [u8] = include_bytes!("./docx/word/fontTable.xml");
+    // const WORD_THEME_THEME_1: &'static [u8] = include_bytes!("./docx/word/styles.xml");
+    // const WORD_SETTINGS: &'static [u8] = include_bytes!("./docx/word/settings.xml");
+    // const WORD_STYLES: &'static [u8] = include_bytes!("./docx/word/styles.xml");
+    // const PROPS_CORE: &'static [u8] = include_bytes!("./docx/docProps/core.xml");
+    // const PROPS_APP: &'static [u8] = include_bytes!("./docx/docProps/app.xml");
+    // const RELS: &'static [u8] = include_bytes!("./docx/_rels/.rels");
 
     pub fn get_document_element(&self) -> anyhow::Result<minidom::Element> {
         use minidom::NSChoice::Any;
@@ -1056,7 +1060,7 @@ impl DocumentDraw {
                 .build()
         };
 
-        let mut document = Self::DOCUMENT_DEFAULT
+        let mut document = Self::WORD_DOCUMENT_DEFAULT
             .parse::<minidom::Element>()
             .context("Failed to parse default document. :(")?;
 
