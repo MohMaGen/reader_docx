@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Ok};
 
-use crate::{traits::AsAnyhow, App};
+use crate::{log_helper::LogHelper, traits::AsAnyhow, App};
 
 pub struct DrawState<'window> {
     pub window: Arc<winit::window::Window>,
@@ -60,7 +60,9 @@ impl App<'_> {
             {
                 let mut document_commands = self.document_commands.lock().to_anyhow()?;
                 while let Some(command) = document_commands.pop() {
-                    draw_state.process_document_command(document_draw, command);
+                    draw_state
+                        .process_document_command(document_draw, command, Arc::clone(&self.state))
+                        .log_if_error();
                 }
             }
             draw_state.update_document(document_draw)?;

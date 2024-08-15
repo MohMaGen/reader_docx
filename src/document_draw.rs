@@ -2,11 +2,13 @@ use anyhow::Context;
 use std::{
     cmp::Ordering,
     collections::{HashMap, VecDeque},
+    io::{self, Read, Write},
     ops::Range,
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 use unicode_segmentation::UnicodeSegmentation;
+use zip::write::{FileOptions, SimpleFileOptions};
 
 use crate::{
     colorscheme::ColorScheme,
@@ -17,6 +19,8 @@ use crate::{
     draw::DrawState,
     font, math,
     primitives::{PlainTextProperties, Primitive, PrimitiveProperties},
+    state::State,
+    traits::AsAnyhow,
 };
 
 #[derive(Debug)]
@@ -296,7 +300,8 @@ impl DrawState<'_> {
         &self,
         document_draw: &mut DocumentDraw,
         command: DocumentCommand,
-    ) {
+        state: Arc<Mutex<State>>,
+    ) -> anyhow::Result<()> {
         match command {
             DocumentCommand::NewScroll(new_scroll) => {
                 document_draw.scroll = new_scroll;
@@ -374,8 +379,48 @@ impl DrawState<'_> {
                 let _ = self.update_document(document_draw);
                 document_draw.change_char(1);
             }
-            DocumentCommand::Save(file) => {}
-        }
+            DocumentCommand::Save(file) => {
+                let state_clone = Arc::clone(&state);
+                let state_guard = state_clone.lock().to_anyhow()?;
+                let zip_document = &state_guard
+                    .document
+                    .as_ref()
+                    .context("[Document Command] Read document")?
+                    .zip_document;
+
+                let archive_data = Vec::new();
+                let mut new_archive = zip::ZipWriter::new(io::Cursor::new(archive_data));
+
+                let options =
+                    SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+
+                for file_name in zip::ZipArchive::new(io::Cursor::new(zip_document))?.file_names() {
+                    new_archive.start_file(file_name, options)?;
+                    let mut file = Vec::new();
+
+                    if "word/document.xml" == file_name {
+                        let element = document_draw.get_document_element()?;
+                        println!("{:?}", element);
+                        element.write_to_decl(&mut file)?;
+                    } else {
+                        zip::ZipArchive::new(io::Cursor::new(zip_document))?
+                            .by_name(file_name)?
+                            .read_to_end(&mut file)?;
+                    }
+
+                    new_archive.write_all(&file)?;
+                    new_archive = zip::ZipWriter::new_append(new_archive.finish()?)?;
+                }
+                let buf = new_archive.finish()?.get_ref().clone();
+
+                {
+                    let mut file = std::fs::File::create(file)?;
+                    file.write_all(&buf)?;
+                }
+            }
+        };
+
+        Ok(())
     }
 
     pub fn draw_document_draw<'a, 'b: 'a>(
@@ -911,14 +956,6 @@ pub enum CursorTargetMut<'a> {
 
 impl DocumentDraw {
     const WORD_DOCUMENT_DEFAULT: &'static str = include_str!("./docx/word/document.xml");
-    // const WORD_RELS: &'static [u8] = include_bytes!("./docx/word/_rels/document.xml.rels");
-    // const WORD_FONT_TABLE: &'static [u8] = include_bytes!("./docx/word/fontTable.xml");
-    // const WORD_THEME_THEME_1: &'static [u8] = include_bytes!("./docx/word/styles.xml");
-    // const WORD_SETTINGS: &'static [u8] = include_bytes!("./docx/word/settings.xml");
-    // const WORD_STYLES: &'static [u8] = include_bytes!("./docx/word/styles.xml");
-    // const PROPS_CORE: &'static [u8] = include_bytes!("./docx/docProps/core.xml");
-    // const PROPS_APP: &'static [u8] = include_bytes!("./docx/docProps/app.xml");
-    // const RELS: &'static [u8] = include_bytes!("./docx/_rels/.rels");
 
     pub fn get_document_element(&self) -> anyhow::Result<minidom::Element> {
         use minidom::NSChoice::Any;
@@ -1489,7 +1526,7 @@ impl DocumentDraw {
         }
 
         for cursor_prim in &self.cursor_prims {
-            println!("CURSOR PRIM {:?}", cursor_prim.get_rect());
+            log::info!("CURSOR PRIM {:?}", cursor_prim.get_rect());
             f(cursor_prim);
         }
 

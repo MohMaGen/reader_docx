@@ -174,7 +174,10 @@ impl App<'_> {
                     ));
                 }
                 "save" => {
-                    std::thread::spawn(save_document(Arc::clone(&self.document_commands)));
+                    std::thread::spawn(save_document(
+                        Arc::clone(&self.document_commands),
+                        Arc::clone(&self.draw_state.as_ref().context("no draw state")?.window),
+                    ));
                 }
                 _ => {}
             }
@@ -320,10 +323,12 @@ fn get_element(archive: &Vec<u8>, file: &str) -> anyhow::Result<Element> {
         .context("Failed to parse document.xml file")
 }
 
-fn save_document(commands: DocumentCommands) -> impl FnOnce() {
+fn save_document(commands: DocumentCommands, window: Arc<Window>) -> impl FnOnce() {
     move || {
         (|| {
             let file = rfd::FileDialog::new()
+                .set_title("Chose file to save the docx file...")
+                .add_filter("", &["docx"])
                 .set_can_create_directories(true)
                 .save_file()
                 .context("Failed to choose file to create")?;
@@ -333,6 +338,8 @@ fn save_document(commands: DocumentCommands) -> impl FnOnce() {
                 .to_anyhow()
                 .context("[save document]")?
                 .push(DocumentCommand::Save(file));
+
+            window.request_redraw();
 
             Ok(())
         })()
