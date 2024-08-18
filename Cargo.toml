@@ -24,4 +24,4 @@ log = "0.4.21"
 pollster = "0.3.0"
 wgpu = "0.20.0"
 colored = "2.1.0"
-
+word_xml = { path = "./word_xml" }

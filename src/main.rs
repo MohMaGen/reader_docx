@@ -11,10 +11,12 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowAttributes},
 };
+
 pub mod colorscheme;
 pub mod document_draw;
 pub mod docx_document;
 pub mod draw;
+pub mod font;
 pub mod init;
 pub mod keyboard_input;
 pub mod log_helper;
@@ -25,7 +27,6 @@ pub mod traits;
 pub mod ui;
 pub mod uniforms;
 pub mod vertex;
-pub mod font;
 
 pub type DocumentCommands = Arc<Mutex<Vec<DocumentCommand>>>;
 
