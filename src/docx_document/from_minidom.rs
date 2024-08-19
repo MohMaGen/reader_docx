@@ -27,8 +27,7 @@ impl<'a> TryFrom<(&'a minidom::Element, &'a minidom::Element)> for DocxDocument 
             ..Default::default()
         };
 
-        let body = root
-            .get_child_ans("body")
+        let body = root .get_child_ans("body")
             .context("Document must containt body.")?;
 
         let mut file = std::fs::File::create("./tmp.out")?;
