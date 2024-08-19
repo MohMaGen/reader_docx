@@ -127,6 +127,11 @@ impl std::fmt::Display for DocxNode {
                 writeln!(f, "{}", format!("{element:?}").with_indent(1))?;
                 writeln!(f, ":( end ):")
             }
+            DocxNode::TodoWordXml(element) => {
+                writeln!(f, ":( todo ):")?;
+                writeln!(f, "{}", format!("{element:?}").with_indent(1))?;
+                writeln!(f, ":( end ):")
+            }
         }
     }
 }

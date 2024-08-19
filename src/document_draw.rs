@@ -8,7 +8,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use unicode_segmentation::UnicodeSegmentation;
-use zip::write::{FileOptions, SimpleFileOptions};
+use zip::write::SimpleFileOptions;
 
 use crate::{
     colorscheme::ColorScheme,

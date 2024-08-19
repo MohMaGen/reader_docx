@@ -20,22 +20,14 @@ impl FromStr for WordXMLDocument {
 
         let mut xml_document = WordXMLDocument {
             header: Default::default(),
-            document_element: Default::default(),
+            root: Default::default(),
         };
 
         for rule in word_xml.into_inner() {
             match rule.as_rule() {
                 Rule::header => xml_document.header = rule.as_str().to_string(),
                 Rule::element => {
-                    let document_element: super::Element = rule.try_into()?;
-                    if document_element.name.as_str() == "w:document" {
-                        xml_document.document_element = document_element;
-                    } else {
-                        return Err(anyhow::Error::msg(format!(
-                            "Root element must have name \"w:document\", but have: {:?}",
-                            document_element.name
-                        )));
-                    }
+                    xml_document.root = rule.try_into()?;
                 }
                 otherwise => {
                     return Err(anyhow::Error::msg(format!(

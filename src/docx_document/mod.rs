@@ -6,8 +6,10 @@ pub mod add_font;
 pub mod content_tree;
 pub mod display;
 pub mod from_minidom;
+pub mod from_word_xml;
 pub mod getters;
 pub mod parse_fonts;
+
 pub use getters::SectrOfProperties;
 
 #[derive(Default, Debug)]
@@ -58,6 +60,7 @@ pub enum DocxNode {
         document_grid: Option<DocumentGrid>,
     },
     Todo(Element),
+    TodoWordXml(word_xml::Element)
 }
 
 #[derive(Debug, Clone)]

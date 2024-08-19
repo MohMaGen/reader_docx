@@ -1,6 +1,13 @@
 use std::str::FromStr;
 
 impl super::Element {
+    pub fn get_children<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a super::Element> {
+        self.inners
+            .iter()
+            .filter_map(super::Node::get_element)
+            .filter(move |elem| elem.name.as_str() == name)
+    }
+
     pub fn get_child(&self, name: &str) -> Option<&Self> {
         self.inners
             .iter()
@@ -33,5 +40,9 @@ impl super::Element {
 
     pub fn get_childs_texts(&self, child_name: &str) -> Option<String> {
         Some(self.get_child(child_name)?.get_texts())
+    }
+
+    pub fn has_child(&self, child_name: &str) -> bool {
+        self.get_child(child_name).is_some()
     }
 }
