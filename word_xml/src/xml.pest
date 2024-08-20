@@ -4,9 +4,10 @@ word_xml  =  { header ~ NEWLINE ~ element }
         open_close_tag = { "<" ~ WS* ~  tag_name ~ (WS+ ~ attr)* ~ WS* ~ "/>" }
         open_tag  =  { "<" ~ WS* ~  PUSH(tag_name) ~ (WS+ ~ attr)* ~ WS* ~ ">" }
             tag_name = @{ "w:" ~ name }
-            attr      =  { attr_name ~ WS* ~ "=" ~WS* ~ attr_value }
-                attr_value  = @{ str }
-                attr_name   = @{ (name ~ ":")? ~ name }
+            attr      =  { attr_name ~ WS* ~ "=" ~WS* ~ attr_value_wrap }
+                attr_name       = @{ (name ~ ":")? ~ name }
+                attr_value_wrap = _{ "\"" ~ attr_value ~ "\"" }
+                attr_value      = @{ ((!"\"" | "\\\"") ~ ANY)* }
 
         close_tag =  _{ "</" ~ WS* ~ POP ~ ">" }
 
