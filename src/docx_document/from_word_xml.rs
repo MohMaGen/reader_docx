@@ -4,7 +4,9 @@ use word_xml::Node;
 use crate::docx_document::DocxNode;
 
 use super::{
-    Color, DocumentGrid, DocxDocument, FontTable, FormProt, GridType, Justification, LineRule, NumType, PageMargin, PageSize, ParagraphProperties, SpacingProperties, TextDirection, TextSize, TextWeight
+    Color, DocumentGrid, DocxDocument, FontTable, FormProt, GridType, Justification, LineRule,
+    NumType, PageMargin, PageSize, ParagraphProperties, SpacingProperties, TextDirection, TextSize,
+    TextWeight,
 };
 
 impl<'a> TryFrom<(&'a word_xml::WordXMLDocument, &'a word_xml::WordXMLDocument)> for DocxDocument {
@@ -25,21 +27,23 @@ impl<'a> TryFrom<(&'a word_xml::WordXMLDocument, &'a word_xml::WordXMLDocument)>
             ..Default::default()
         };
 
-        for root_element in document_xml
+        let body = document_xml
             .root
-            .inners
-            .iter()
-            .filter_map(Node::get_element)
-        {
+            .get_child("w:body")
+            .context("No body element")?;
+
+        for root_element in body.inners.iter().filter_map(Node::get_element) {
             let curr = Box::new(match root_element.name.as_str() {
-                "p" => parse_paragraph(root_element, &mut document),
-                "sectrPr" => parse_sectr_properties(root_element)?,
+                "w:p" => parse_paragraph(root_element, &mut document),
+                "w:sectPr" => {
+                    parse_sectr_properties(root_element).context(format!("{:#?}", root_element))?
+                }
                 _ => DocxNode::TodoWordXml(root_element.clone()),
             });
             document.content.push(curr);
         }
 
-        todo!()
+        Ok(document)
     }
 }
 
@@ -49,7 +53,7 @@ impl<'a> TryFrom<&'a word_xml::WordXMLDocument> for FontTable {
     fn try_from(value: &'a word_xml::WordXMLDocument) -> Result<Self, Self::Error> {
         let mut table = FontTable::default();
 
-        for font in value.root.get_children("font") {
+        for font in value.root.get_children("w:font") {
             let name = font
                 .get_attr_parsed::<String>("w:name")
                 .context("Font must have name")?;
@@ -82,11 +86,11 @@ fn parse_paragraph_properties(
     root_element: &word_xml::Element,
     document: &mut DocxDocument,
 ) -> ParagraphProperties {
-    let Some(ppr) = root_element.get_child("pPr") else {
+    let Some(ppr) = root_element.get_child("w:pPr") else {
         return ParagraphProperties::default();
     };
     ParagraphProperties {
-        justify: ppr.get_childs_attr_parsed::<Justification>("jc", "w:val"),
+        justify: ppr.get_childs_attr_parsed::<Justification>("w:jc", "w:val"),
         text_properties: parse_text_properties(ppr, document, &Default::default()),
         spacing: parce_spacing(ppr),
     }
@@ -94,10 +98,10 @@ fn parse_paragraph_properties(
 
 fn parce_spacing(ppr: &word_xml::Element) -> SpacingProperties {
     SpacingProperties {
-        line: parse_float_as_some(ppr, "spacing", "w:line"),
+        line: parse_float_as_some(ppr, "w:spacing", "w:line"),
         line_rule: ppr.get_childs_attr_parsed::<LineRule>("spacing", "w:lineRule"),
-        after: parse_float_as_some(ppr, "spacing", "w:after"),
-        before: parse_float_as_some(ppr, "spacing", "w:before"),
+        after: parse_float_as_some(ppr, "w:spacing", "w:after"),
+        before: parse_float_as_some(ppr, "w:spacing", "w:before"),
     }
 }
 
@@ -122,15 +126,15 @@ fn parse_sectr_properties(root_element: &word_xml::Element) -> anyhow::Result<su
 
 fn parse_document_grid(root_element: &word_xml::Element) -> Option<DocumentGrid> {
     Some(DocumentGrid {
-        char_space: root_element.get_childs_attr_parsed::<u64>("docGrid", "w:charSpace")?,
-        line_pitch: root_element.get_childs_attr_parsed::<u64>("docGrid", "w:linePitch")?,
-        grid_type: root_element.get_childs_attr_parsed::<GridType>("docGrid", "w:type")?,
+        char_space: root_element.get_childs_attr_parsed::<u64>("w:docGrid", "w:charSpace")?,
+        line_pitch: root_element.get_childs_attr_parsed::<u64>("w:docGrid", "w:linePitch")?,
+        grid_type: root_element.get_childs_attr_parsed::<GridType>("w:docGrid", "w:type")?,
     })
 }
 
 fn parse_text_direction(root_element: &word_xml::Element) -> TextDirection {
     root_element
-        .get_childs_attr_parsed::<TextDirection>("textDirection", "w:val")
+        .get_childs_attr_parsed::<TextDirection>("w:textDirection", "w:val")
         .context("can't get text direction")
         .ok()
         .unwrap_or_default()
@@ -138,41 +142,41 @@ fn parse_text_direction(root_element: &word_xml::Element) -> TextDirection {
 
 fn parse_form_prot(root_element: &word_xml::Element) -> Option<FormProt> {
     root_element
-        .get_childs_attr_parsed::<FormProt>("formProt", "w:val")
+        .get_childs_attr_parsed::<FormProt>("w:formProt", "w:val")
         .context("can't get page form prot")
         .ok()
 }
 
 fn parse_page_num_type(root_element: &word_xml::Element) -> Option<NumType> {
     root_element
-        .get_childs_attr_parsed::<NumType>("pgNumType", "w:fmt")
+        .get_childs_attr_parsed::<NumType>("w:pgNumType", "w:fmt")
         .context("can't get page num type")
         .ok()
 }
 
 fn parse_page_margin(root_element: &word_xml::Element) -> anyhow::Result<PageMargin> {
     Ok(PageMargin {
-        footer: get_float(root_element, "pgMar", "w:footer").context("footer")?,
-        gutter: get_float(root_element, "pgMar", "w:gutter").context("gutter")?,
-        header: get_float(root_element, "pgMar", "w:header").context("header")?,
-        bottom: get_float(root_element, "pgMar", "w:bottom").context("bottom")?,
-        left: get_float(root_element, "pgMar", "w:left").context("left")?,
-        right: get_float(root_element, "pgMar", "w:right").context("right")?,
-        top: get_float(root_element, "pgMar", "w:top").context("top")?,
+        footer: get_float(root_element, "w:pgMar", "w:footer").context("footer")?,
+        gutter: get_float(root_element, "w:pgMar", "w:gutter").context("gutter")?,
+        header: get_float(root_element, "w:pgMar", "w:header").context("header")?,
+        bottom: get_float(root_element, "w:pgMar", "w:bottom").context("bottom")?,
+        left: get_float(root_element, "w:pgMar", "w:left").context("left")?,
+        right: get_float(root_element, "w:pgMar", "w:right").context("right")?,
+        top: get_float(root_element, "w:pgMar", "w:top").context("top")?,
     })
 }
 
 fn page_type(root_element: &word_xml::Element) -> Option<super::PageType> {
     root_element
-        .get_childs_attr_parsed("type", "w:val")
+        .get_childs_attr_parsed("w:type", "w:val")
         .context(format!("can't parse page type: `{:?}`", root_element))
         .ok()
 }
 
 fn parse_page_size(root_element: &word_xml::Element) -> Option<PageSize> {
     Some(PageSize {
-        width: get_float(root_element, "pgSz", "w:w").ok()?,
-        height: get_float(root_element, "pgSz", "w:h").ok()?,
+        width: get_float(root_element, "w:pgSz", "w:w").ok()?,
+        height: get_float(root_element, "w:pgSz", "w:h").ok()?,
     })
 }
 
@@ -197,9 +201,9 @@ fn get_texts_of_element(
         .inners
         .iter()
         .filter_map(word_xml::Node::get_element)
-        .filter(|tag| tag.name.as_str() == "r")
+        .filter(|tag| tag.name.as_str() == "w:r")
         .filter_map(|r_tag| {
-            let content = r_tag.get_texts();
+            let content = r_tag.get_child("w:t")?.get_texts();
 
             let properties = parse_text_properties(r_tag, document, &content)?;
 
@@ -217,33 +221,33 @@ fn parse_text_properties(
     document: &mut DocxDocument,
     content: &String,
 ) -> Option<super::TextProperties> {
-    let rpr = parent_tag.get_child("rPr")?;
+    let rpr = parent_tag.get_child("w:rPr")?;
 
     let size = rpr
-        .get_childs_attr_parsed::<i32>("sz", "w:val")
+        .get_childs_attr_parsed::<i32>("w:sz", "w:val")
         .map(TextSize::from);
 
     let size_cs = rpr
-        .get_childs_attr_parsed::<i32>("szCs", "w:val")
+        .get_childs_attr_parsed::<i32>("w:szCs", "w:val")
         .map(TextSize::from);
 
-    let font_name = rpr.get_childs_attr_parsed::<String>("rFonts", "w:ascii");
+    let font_name = rpr.get_childs_attr_parsed::<String>("w:rFonts", "w:ascii");
     let font_handle = if let Some(font_name) = font_name.clone() {
         document.init_or_push_to_font(font_name, content.clone())
     } else {
         document.push_to_default_font(content.clone())
     };
 
-    let color = rpr.get_childs_attr_parsed::<Color>("color", "w:val");
+    let color = rpr.get_childs_attr_parsed::<Color>("w:color", "w:val");
 
     let width = rpr
-        .has_child("b")
+        .has_child("w:b")
         .then_some(TextWeight::Bold)
         .unwrap_or_default();
 
-    let italic = rpr.has_child("i");
+    let italic = rpr.has_child("w:i");
 
-    let underline = rpr.has_child("b");
+    let underline = rpr.has_child("w:b");
 
     Some(super::TextProperties {
         font_handle,

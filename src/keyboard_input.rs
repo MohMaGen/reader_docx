@@ -307,7 +307,7 @@ pub async fn load_docx() -> anyhow::Result<state::Document> {
     })
 }
 
-fn get_element(archive: &Vec<u8>, file: &str) -> anyhow::Result<Element> {
+fn get_element(archive: &Vec<u8>, file: &str) -> anyhow::Result<word_xml::WordXMLDocument> {
     let archive = std::io::Cursor::new(archive);
 
     let mut document = String::new();
