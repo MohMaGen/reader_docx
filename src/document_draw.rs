@@ -399,7 +399,7 @@ impl DrawState<'_> {
                     let mut file = Vec::new();
 
                     if "word/document.xml" == file_name {
-                        let element = document_draw.get_document_element()?;
+                        let element = document_draw.get_word_xml_document()?;
                         println!("{:?}", element);
                         element.write_to_decl(&mut file)?;
                     } else {
@@ -956,6 +956,196 @@ pub enum CursorTargetMut<'a> {
 
 impl DocumentDraw {
     const WORD_DOCUMENT_DEFAULT: &'static str = include_str!("./docx/word/document.xml");
+
+    pub fn get_word_xml_document(&self) -> anyhow::Result<word_xml::WordXMLDocument> {
+        let process_rpr = |rpr: TextProperties| {
+            let mut builder = word_xml::Element::new("w:rPr");
+            if let docx_document::TextWeight::Bold = rpr.weight {
+                builder.append_element(word_xml::Element::new("w:b"));
+            };
+
+            if rpr.italic {
+                builder.append_element(word_xml::Element::new("w:i"));
+            }
+
+            if let Some(size) = &rpr.size {
+                builder.append_element(
+                    word_xml::Element::new("w:sz").with_attr("w:val", size.to_string()),
+                );
+            }
+
+            if let Some(size_cs) = &rpr.size {
+                builder.append_element(
+                    word_xml::Element::new("w:szCs").with_attr("w:val", size_cs.to_string()),
+                )
+            }
+
+            if let Some(font_name) = &rpr.font_name {
+                builder.append_element(
+                    word_xml::Element::new("w:rFonts")
+                        .with_attr("w:ascii", font_name)
+                        .with_attr("w:hAnsi", font_name)
+                        .with_attr("w:cs", font_name),
+                )
+            }
+            if let Some(color) = &rpr.color {
+                builder.append_element(
+                    word_xml::Element::new("w:color").with_attr("w:val", color.to_xml_val()),
+                )
+            }
+            builder
+        };
+
+        let process_spacing = |spacing: SpacingProperties| {
+            word_xml::Element::new("w:spacing")
+                .with_attr("w:line", spacing.line.unwrap_or(1.).to_string())
+                .with_attr("w:line", spacing.line_rule.unwrap_or_default().to_string())
+                .with_attr("w:line", spacing.after.unwrap_or(1.).to_string())
+                .with_attr("w:line", spacing.before.unwrap_or(1.).to_string())
+        };
+        let process_ppr = |ppr: ParagraphProperties| {
+            word_xml::Element::new("w:pPr")
+                .with_element(word_xml::Element::new("w:pStyle").with_attr("w:val", "Normal"))
+                .with_element(word_xml::Element::new("w:bidi").with_attr("w:val", "0"))
+                .with_element(word_xml::Element::new("w:jc").with_attr(
+                    "w:val",
+                    ppr.justify.map_or("start".to_string(), |jc| jc.to_string()),
+                ))
+                .with_element(process_rpr(ppr.text_properties.unwrap_or_default()))
+                .with_element(process_spacing(ppr.spacing))
+        };
+
+        let process_sect_of_properties = |sect_properties: SectrOfProperties| {
+            let to_string_mul_by = |num: f32, mul: f32| ((num * mul) as usize).to_string();
+            let mut builder = word_xml::Element::new("w:sectPr");
+
+            if let Some(num_type) = &sect_properties.page_num_type {
+                builder.append_element(
+                    word_xml::Element::new("w:pgNumType").with_attr("w:fmt", num_type.to_string()),
+                )
+            }
+
+            if let Some(page_type) = &sect_properties.page_type {
+                builder.append_element(
+                    word_xml::Element::new("w:type").with_attr("w:val", page_type.to_string()),
+                )
+            }
+            if let Some(form_prot) = &sect_properties.form_prot {
+                builder.append_element(
+                    word_xml::Element::new("w:formProt").with_attr("w:val", form_prot.to_string()),
+                )
+            }
+
+            builder
+                .with_element(
+                    word_xml::Element::new("w:textDirection")
+                        .with_attr("w:val", sect_properties.text_direction.to_string()),
+                )
+                .with_element(
+                    word_xml::Element::new("w:pgSz")
+                        .with_attr("w:w", to_string_mul_by(sect_properties.get_size().0, 10.))
+                        .with_attr("w:h", to_string_mul_by(sect_properties.get_size().1, 10.)),
+                )
+                .with_element(
+                    word_xml::Element::new("w:pgMar")
+                        .with_attr(
+                            "w:top",
+                            to_string_mul_by(sect_properties.page_margin.top, 10.),
+                        )
+                        .with_attr(
+                            "w:right",
+                            to_string_mul_by(sect_properties.page_margin.right, 10.),
+                        )
+                        .with_attr(
+                            "w:bottom",
+                            to_string_mul_by(sect_properties.page_margin.bottom, 10.),
+                        )
+                        .with_attr(
+                            "w:left",
+                            to_string_mul_by(sect_properties.page_margin.left, 10.),
+                        )
+                        .with_attr(
+                            "w:header",
+                            to_string_mul_by(sect_properties.page_margin.header, 10.),
+                        )
+                        .with_attr(
+                            "w:footer",
+                            to_string_mul_by(sect_properties.page_margin.footer, 10.),
+                        )
+                        .with_attr(
+                            "w:gutter",
+                            to_string_mul_by(sect_properties.page_margin.gutter, 10.),
+                        ),
+                )
+        };
+
+        let mut document = Self::WORD_DOCUMENT_DEFAULT
+            .parse::<word_xml::WordXMLDocument>()
+            .context("Failded to parse default document. :(")?;
+
+        let body = document
+            .root
+            .get_child_mut("w:body")
+            .context("Default document doesnot contain body. (how?) ;o")?;
+
+        for par in &self.paragraphs {
+            let mut par_elem =
+                word_xml::Element::new("w:p").with_element(process_ppr(par.properties.clone()));
+
+            let mut text_cont = String::new();
+            let mut text_prop: Option<TextProperties> = None;
+            for word in &par.words {
+                for glyph_view in &word.glyphs_views {
+                    if let Some(prop) = text_prop.clone() {
+                        if prop != glyph_view.properties {
+                            let mut r_elem = word_xml::Element::new("w:r");
+                            if prop != par.properties.text_properties.clone().unwrap_or_default() {
+                                r_elem.append_element(
+                                    word_xml::Element::new("w:rPr").with_element(process_rpr(prop)),
+                                )
+                            }
+                            par_elem.append_element(r_elem.with_element(
+                                word_xml::Element::new("w:t").with_text(text_cont.as_str()),
+                            ));
+
+                            text_prop = Some(glyph_view.properties.clone());
+                            text_cont = word
+                                .word
+                                .get(glyph_view.word_range.clone())
+                                .expect("Failed to get word range from glyph")
+                                .to_string();
+                        } else {
+                            text_cont += word
+                                .word
+                                .get(glyph_view.word_range.clone())
+                                .expect("Failed to get word range from glyph");
+                        }
+                    } else {
+                        text_prop = Some(glyph_view.properties.clone());
+                        text_cont = word
+                            .word
+                            .get(glyph_view.word_range.clone())
+                            .expect("Failed to get word range from glyph")
+                            .to_string();
+                    }
+                }
+            }
+            let mut r_elem = word_xml::Element::new("w:r");
+            if let Some(prop) = text_prop
+                && prop != par.properties.text_properties.clone().unwrap_or_default()
+            {
+                r_elem
+                    .append_element(word_xml::Element::new("w:rPr").with_element(process_rpr(prop)))
+            }
+            par_elem.append_element(
+                r_elem.with_element(word_xml::Element::new("w:t").with_text(text_cont.as_str())),
+            );
+        }
+
+        body.append_element(process_sect_of_properties(self.sect_properties.clone()));
+
+        Ok(document)
+    }
 
     pub fn get_document_element(&self) -> anyhow::Result<minidom::Element> {
         use minidom::NSChoice::Any;

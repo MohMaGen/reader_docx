@@ -1,5 +1,7 @@
 mod from_str;
 mod getters;
+mod builder;
+mod write;
 
 #[derive(Debug)]
 pub struct WordXMLDocument {
@@ -37,6 +39,12 @@ impl Node {
         matches!(self, Self::Text(_))
     }
     pub fn get_element(&self) -> Option<&Element> {
+        match self {
+            Node::Element(elem) => Some(elem),
+            _ => None,
+        }
+    }
+    pub fn get_element_mut(&mut self) -> Option<&mut Element> {
         match self {
             Node::Element(elem) => Some(elem),
             _ => None,

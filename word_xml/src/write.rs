@@ -1,0 +1,3 @@
+impl super::WordXMLDocument {
+
+}

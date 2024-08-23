@@ -15,6 +15,13 @@ impl super::Element {
             .find(|elem| elem.name.as_str() == name)
     }
 
+    pub fn get_child_mut(&mut self, name: &str) -> Option<&mut Self> {
+        self.inners
+            .iter_mut()
+            .filter_map(super::Node::get_element_mut)
+            .find(|elem| elem.name.as_str() == name)
+    }
+
     pub fn get_attr_parsed<T: FromStr>(&self, attr_name: &str) -> Option<T> {
         self.attrs.iter().find_map(|attr| {
             (attr.name.as_str() == attr_name)
