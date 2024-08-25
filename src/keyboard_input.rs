@@ -1,5 +1,4 @@
 use std::{
-    fmt::{write, Write},
     io::Read,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -152,13 +151,16 @@ impl App<'_> {
         event: &winit::event::KeyEvent,
     ) -> Result<bool, anyhow::Error> {
         if let PhysicalKey::Code(KeyCode::Enter) = event.physical_key {
-            let mut state = self.state.lock().to_anyhow()?;
-            state.load_console_input();
+            let command_name = {
+                let mut state = self.state.lock().to_anyhow()?;
+                state.load_console_input();
 
-            let command_name = state
-                .command_in_process
-                .get(0)
-                .context("command must conaint something.")?;
+                state
+                    .command_in_process
+                    .get(0)
+                    .context("command must conaint something.")?
+                    .clone()
+            };
 
             match command_name.as_str() {
                 "view" => {

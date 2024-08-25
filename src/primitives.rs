@@ -159,11 +159,10 @@ impl DrawState<'_> {
         for glyph in &glyphs {
             if let Some(bounding_box) = glyph.pixel_bounding_box() {
                 glyph.draw(|x, y, v| {
-                    let x = (x as i32 + bounding_box.min.x) as u32;
+                    let x = x + bounding_box.min.x as u32;
                     let y = extent.height - (y + bounding_box.min.y as u32);
-                    if let Some(pxl) =
-                        texels.get_mut(x as usize + y as usize * extent.width as usize)
-                    {
+
+                    if let Some(pxl) = texels.get_mut((x + y * extent.width) as usize) {
                         *pxl = (v * 255.0) as u8;
                     }
                 });
@@ -362,19 +361,21 @@ fn get_glyphs_size(
     let width = {
         let min_x = glyphs
             .iter()
-            .filter_map(|g| g.pixel_bounding_box().map(|b| b.min.x))
+            .filter_map(|g| g.pixel_bounding_box())
+            .map(|g| g.min.x)
             .next()
-            .unwrap_or_default();
+            .unwrap_or(10);
 
         let max_x = glyphs
             .iter()
             .rev()
-            .filter_map(|g| g.pixel_bounding_box().map(|b| b.max.x))
+            .filter_map(|g| g.pixel_bounding_box())
+            .map(|g| g.max.x)
             .next()
-            .unwrap_or_default();
+            .unwrap_or(10);
         (max_x - min_x) as f32
     };
-    let height = { v_m.ascent - v_m.descent };
+    let height = { (v_m.ascent - v_m.descent).ceil() };
     (width, height)
 }
 

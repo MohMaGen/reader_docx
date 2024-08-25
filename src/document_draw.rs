@@ -400,8 +400,9 @@ impl DrawState<'_> {
 
                     if "word/document.xml" == file_name {
                         let element = document_draw.get_word_xml_document()?;
-                        println!("{:?}", element);
+                        println!("document: {:?}", element);
                         element.write_to(&mut file)?;
+                        println!("result: {:?}", String::from_utf8(file.clone()));
                     } else {
                         zip::ZipArchive::new(io::Cursor::new(zip_document))?
                             .by_name(file_name)?
@@ -998,10 +999,19 @@ impl DocumentDraw {
 
         let process_spacing = |spacing: SpacingProperties| {
             word_xml::Element::new("w:spacing")
-                .with_attr("w:line", spacing.line.unwrap_or(1.).to_string())
-                .with_attr("w:line", spacing.line_rule.unwrap_or_default().to_string())
-                .with_attr("w:line", spacing.after.unwrap_or(1.).to_string())
-                .with_attr("w:line", spacing.before.unwrap_or(1.).to_string())
+                .with_attr("w:line", spacing.line.map_or(120., |v| v * 10.).to_string())
+                .with_attr(
+                    "w:lineRule",
+                    spacing.line_rule.unwrap_or_default().to_string(),
+                )
+                .with_attr(
+                    "w:after",
+                    spacing.after.map_or(120., |v| v * 10.).to_string(),
+                )
+                .with_attr(
+                    "w:before",
+                    spacing.before.map_or(120., |v| v * 10.).to_string(),
+                )
         };
         let process_ppr = |ppr: ParagraphProperties| {
             word_xml::Element::new("w:pPr")
@@ -1095,15 +1105,16 @@ impl DocumentDraw {
             let mut text_cont = String::new();
             let mut text_prop: Option<TextProperties> = None;
             for word in &par.words {
+                if text_cont.len() > 0 {
+                    text_cont += " ";
+                }
                 for glyph_view in &word.glyphs_views {
                     if let Some(prop) = text_prop.clone() {
                         if prop != glyph_view.properties {
                             let mut r_elem = word_xml::Element::new("w:r");
-                            if prop != par.properties.text_properties.clone().unwrap_or_default() {
-                                r_elem.append_element(
-                                    word_xml::Element::new("w:rPr").with_element(process_rpr(prop)),
-                                )
-                            }
+                            r_elem.append_element(
+                                word_xml::Element::new("w:rPr").with_element(process_rpr(prop)),
+                            );
                             par_elem.append_element(r_elem.with_element(
                                 word_xml::Element::new("w:t").with_text(text_cont.as_str()),
                             ));
@@ -1131,15 +1142,14 @@ impl DocumentDraw {
                 }
             }
             let mut r_elem = word_xml::Element::new("w:r");
-            if let Some(prop) = text_prop
-                && prop != par.properties.text_properties.clone().unwrap_or_default()
-            {
-                r_elem
-                    .append_element(word_xml::Element::new("w:rPr").with_element(process_rpr(prop)))
-            }
+            r_elem.append_element(
+                word_xml::Element::new("w:rPr")
+                    .with_element(process_rpr(text_prop.unwrap_or_default())),
+            );
             par_elem.append_element(
                 r_elem.with_element(word_xml::Element::new("w:t").with_text(text_cont.as_str())),
             );
+            body.append_element(par_elem);
         }
 
         body.append_element(process_sect_of_properties(self.sect_properties.clone()));

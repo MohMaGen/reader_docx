@@ -1,11 +1,12 @@
-fn main() {
-    let document = word_xml::WordXMLDocument {
-        header: String::from("<?HEADER?>"),
-        root: word_xml::Element::new("w:aaa").with_attr("w:value", "10")
-    };
+fn main() -> anyhow::Result<()> {
+    let data = include_str!("./document_formated.xml");
+    let document: word_xml::WordXMLDocument = data.parse()?;
+
 
     let mut buf = Vec::new();
     let _ = document.write_to(&mut buf);
 
     println!("{}", String::from_utf8(buf).unwrap());
+
+    Ok(())
 }
