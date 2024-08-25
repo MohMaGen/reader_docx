@@ -1,13 +1,15 @@
-use std::{path::PathBuf, sync::{Arc, Mutex}};
-
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use crate::{colorscheme::ColorScheme, docx_document::DocxDocument};
 
 #[derive(Clone, Default)]
 pub struct State {
-    pub value: f32,
     pub mode: Mode,
     pub console_input: String,
+    pub command_in_process: Vec<String>,
     pub colorscheme: ColorScheme,
     pub document: Option<Document>,
 }
@@ -31,6 +33,22 @@ impl State {
     pub fn init() -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self::default()))
     }
+
+    pub fn load_console_input(&mut self) {
+        self.command_in_process = self
+            .console_input
+            .clone()
+            .split(char::is_whitespace)
+            .filter(|s| s.len() != 0)
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        self.console_input = String::new();
+        self.mode = Mode::Normal;
+    }
+
+    pub fn get_console_command_arg(&self, idx: usize) -> Option<&str> {
+        self.command_in_process.get(idx).map(String::as_str)
+    }
 }
 
 impl std::fmt::Display for Mode {
@@ -47,4 +65,3 @@ impl std::fmt::Display for Mode {
         )
     }
 }
-

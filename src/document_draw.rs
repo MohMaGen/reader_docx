@@ -401,7 +401,7 @@ impl DrawState<'_> {
                     if "word/document.xml" == file_name {
                         let element = document_draw.get_word_xml_document()?;
                         println!("{:?}", element);
-                        element.write_to_decl(&mut file)?;
+                        element.write_to(&mut file)?;
                     } else {
                         zip::ZipArchive::new(io::Cursor::new(zip_document))?
                             .by_name(file_name)?

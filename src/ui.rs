@@ -67,19 +67,6 @@ impl DrawState<'_> {
             ),
             &mut ui_primitives.console_input,
         );
-
-        //self.draw_and_update(
-        //    rpass,
-        //    PlainTextProperties {
-        //        left_top: (100., 100.).into(),
-        //        content: String::from("Hello, world! Привет Мир"),
-        //        font: rusttype::Font::try_from_bytes(include_bytes!("../fonts/small_pixel-7.ttf"))
-        //            .unwrap(),
-        //        color: 0x00000ff.into(),
-        //        scale: 40.,
-        //    },
-        //    &mut ui_primitives.hello_text,
-        //);
     }
 
     #[allow(clippy::too_many_arguments)]

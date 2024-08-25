@@ -1,10 +1,11 @@
 use std::{
+    fmt::{write, Write},
     io::Read,
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
 use anyhow::Context;
-use minidom::Element;
 use winit::{
     event::ElementState,
     keyboard::{KeyCode, PhysicalKey},
@@ -151,16 +152,15 @@ impl App<'_> {
         event: &winit::event::KeyEvent,
     ) -> Result<bool, anyhow::Error> {
         if let PhysicalKey::Code(KeyCode::Enter) = event.physical_key {
-            let command = {
-                let mut state = self.state.lock().to_anyhow()?;
-                state.mode = Mode::Normal;
-                let command = state.console_input.clone();
-                state.console_input = String::new();
+            let mut state = self.state.lock().to_anyhow()?;
+            state.load_console_input();
 
-                command
-            };
+            let command_name = state
+                .command_in_process
+                .get(0)
+                .context("command must conaint something.")?;
 
-            match &command.trim()[1..5] {
+            match command_name.as_str() {
                 "view" => {
                     let mut state = self.state.lock().to_anyhow()?;
                     state.console_input = "".into();
@@ -268,14 +268,22 @@ impl App<'_> {
 fn load_file_and_write_to_state(state: Arc<Mutex<State>>, window: Arc<Window>) -> impl FnOnce() {
     move || {
         (|| {
-            let document = pollster::block_on(load_docx())?;
+            let mut guard = state.lock().to_anyhow()?;
+
+            let file = if let Some(file) = guard.get_console_command_arg(1) {
+                PathBuf::from(file)
+            } else {
+                rfd::FileDialog::new()
+                    .set_title("Open a docx file...")
+                    .add_filter("", &["docx"])
+                    .pick_file()
+                    .context("Failed to pick file.")?
+            };
+            let document = read_document_from_file(file)?;
 
             println!("{}", document.document);
 
-            {
-                let mut state = state.lock().to_anyhow()?;
-                state.document = Some(document);
-            }
+            guard.document = Some(document);
             window.request_redraw();
 
             anyhow::Result::Ok(())
@@ -284,13 +292,7 @@ fn load_file_and_write_to_state(state: Arc<Mutex<State>>, window: Arc<Window>) -
     }
 }
 
-pub async fn load_docx() -> anyhow::Result<state::Document> {
-    let file = rfd::FileDialog::new()
-        .set_title("Open a docx file...")
-        .add_filter("", &["docx"])
-        .pick_file()
-        .context("Failed to pick file.")?;
-
+pub fn read_document_from_file(file: PathBuf) -> anyhow::Result<state::Document> {
     let archive = std::fs::read(file.clone()).context("Can't read archive")?;
 
     let document = get_element(&archive, "word/document.xml")?;
