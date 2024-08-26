@@ -35,15 +35,14 @@ impl State {
     }
 
     pub fn load_console_input(&mut self) {
-        self.command_in_process = self
-            .console_input
-            .clone()
+        self.command_in_process = self.console_input.clone()[1..]
             .split(char::is_whitespace)
             .filter(|s| s.len() != 0)
             .map(ToString::to_string)
             .collect::<Vec<_>>();
         self.console_input = String::new();
         self.mode = Mode::Normal;
+        log::info!("command in process: {:?}", self.command_in_process);
     }
 
     pub fn get_console_command_arg(&self, idx: usize) -> Option<&str> {
