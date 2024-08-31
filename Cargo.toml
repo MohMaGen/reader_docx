@@ -8,7 +8,6 @@ edition = "2024"
 [dependencies]
 font-loader = "0.11.0"
 zip = "2.1"
-minidom = "0.15.2"
 anyhow = "1.0.82"
 unicode-segmentation = "1.11.0"
 argp = "0.3.0"
