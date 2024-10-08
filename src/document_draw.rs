@@ -152,7 +152,7 @@ impl DrawState<'_> {
 
         let ctx = DrawStateCtx {
             page_content_rect,
-            page_properties,
+            page_properties: page_properties.clone(),
             bg_color: colorscheme.page_bg_color,
             page_rect,
             v_width,
@@ -164,6 +164,10 @@ impl DrawState<'_> {
         document_draw.selection_color = colorscheme.selection_color;
         document_draw.bg_color = colorscheme.page_bg_color;
         document_draw.pages = vec![first_page];
+        document_draw.sect_properties = SectrOfProperties::from(page_properties);
+
+
+
 
         let Some(nodes) = &Arc::clone(&document).content.nodes else {
             return Ok(document_draw);
@@ -961,6 +965,7 @@ impl DocumentDraw {
     pub fn get_word_xml_document(&self) -> anyhow::Result<word_xml::WordXMLDocument> {
         let process_rpr = |rpr: TextProperties| {
             let mut builder = word_xml::Element::new("w:rPr");
+
             if let docx_document::TextWeight::Bold = rpr.weight {
                 builder.append_element(word_xml::Element::new("w:b"));
             };
@@ -998,31 +1003,37 @@ impl DocumentDraw {
         };
 
         let process_spacing = |spacing: SpacingProperties| {
-            word_xml::Element::new("w:spacing")
-                .with_attr("w:line", spacing.line.map_or(120., |v| v * 10.).to_string())
-                .with_attr(
-                    "w:lineRule",
-                    spacing.line_rule.unwrap_or_default().to_string(),
-                )
-                .with_attr(
-                    "w:after",
-                    spacing.after.map_or(120., |v| v * 10.).to_string(),
-                )
-                .with_attr(
-                    "w:before",
-                    spacing.before.map_or(120., |v| v * 10.).to_string(),
-                )
+            let mut builder = word_xml::Element::new("w:spacing");
+
+            if let Some(line) = spacing.line {
+                builder.append_attr("w:line", line);
+            }
+            if let Some(line_rule) = spacing.line_rule {
+                builder.append_attr( "w:lineRule", line_rule );
+            }
+
+            if let Some(after) = spacing.after {
+                builder.append_attr( "w:after", after );
+            }
+
+            if let Some(before) = spacing.before {
+                builder.append_attr( "w:before", before );
+            }
+            builder
         };
+
         let process_ppr = |ppr: ParagraphProperties| {
-            word_xml::Element::new("w:pPr")
+            let mut builder = word_xml::Element::new("w:pPr")
                 .with_element(word_xml::Element::new("w:pStyle").with_attr("w:val", "Normal"))
-                .with_element(word_xml::Element::new("w:bidi").with_attr("w:val", "0"))
-                .with_element(word_xml::Element::new("w:jc").with_attr(
-                    "w:val",
-                    ppr.justify.map_or("start".to_string(), |jc| jc.to_string()),
-                ))
-                .with_element(process_rpr(ppr.text_properties.unwrap_or_default()))
-                .with_element(process_spacing(ppr.spacing))
+                .with_element(word_xml::Element::new("w:bidi").with_attr("w:val", "0"));
+
+            if let Some(justify) = ppr.justify {
+                builder.append_element(word_xml::Element::new("w:jc").with_attr("w:val", justify));
+            }
+            if let Some(rpr) = ppr.text_properties {
+                builder.append_element(process_rpr(rpr));
+            }
+            builder.with_element(process_spacing(ppr.spacing))
         };
 
         let process_sect_of_properties = |sect_properties: SectrOfProperties| {
@@ -1152,6 +1163,7 @@ impl DocumentDraw {
             body.append_element(par_elem);
         }
 
+        println!("\n{:?}", self.sect_properties.clone());
         body.append_element(process_sect_of_properties(self.sect_properties.clone()));
 
         Ok(document)

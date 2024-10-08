@@ -1,4 +1,6 @@
 
+use crate::document_draw::PageProperties;
+
 use super::{
     DocumentGrid, DocxDocument, DocxNode, FormProt, NumType, PageMargin, PageSize, PageType,
     TextDirection,
@@ -64,6 +66,27 @@ impl DocxNode {
     pub fn is_sector_of_properties(&self) -> bool {
         matches!(self, Self::SectrOfProperties { .. })
     }
+}
+
+impl From<PageProperties> for SectrOfProperties {
+    fn from(value: PageProperties) -> Self {
+        Self {
+            page_size: PageSize {
+                width: value.size.width,
+                height: value.size.height,
+            },
+            page_margin: PageMargin {
+                footer: 0.,
+                gutter: 0.,
+                header: 0.,
+                bottom: value.paddings.bottom,
+                left: value.paddings.left,
+                right: value.paddings.right,
+                top: value.paddings.top,
+            },
+            ..Default::default()
+        }
+	}
 }
 
 impl Default for SectrOfProperties {
