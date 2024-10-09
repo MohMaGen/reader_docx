@@ -144,25 +144,25 @@ impl DrawState<'_> {
 
         let size = get_glyphs_size(&glyphs, v_m);
 
-        if size.0 as u32 == 0 || size.1 as u32 == 0 {
+        if size.0.ceil() as u32 == 0 || size.1.ceil() as u32 == 0 {
             return Default::default();
         }
 
         let uniform = self.calc_rect_uniform(math::Rectangle::new(prop.left_top, size), prop.color);
 
         let extent = wgpu::Extent3d {
-            width: size.0.round() as u32,
-            height: size.1.round() as u32,
+            width: size.0.ceil() as u32,
+            height: size.1.ceil() as u32,
             depth_or_array_layers: 1,
         };
         let mut texels = vec![0u8; (extent.width * extent.height) as usize];
         for glyph in &glyphs {
             if let Some(bounding_box) = glyph.pixel_bounding_box() {
                 glyph.draw(|x, y, v| {
-                    let x = x + bounding_box.min.x as u32;
-                    let y = extent.height - (y + bounding_box.min.y as u32);
+                    let x = x as i32 + bounding_box.min.x;
+                    let y = extent.height  as i32 - (y as i32 + bounding_box.min.y);
 
-                    if let Some(pxl) = texels.get_mut((x + y * extent.width) as usize) {
+                    if let Some(pxl) = texels.get_mut((x + y * extent.width as i32) as usize) {
                         *pxl = (v * 255.0) as u8;
                     }
                 });
@@ -364,7 +364,7 @@ fn get_glyphs_size(
             .filter_map(|g| g.pixel_bounding_box())
             .map(|g| g.min.x)
             .next()
-            .unwrap_or(10);
+            .unwrap_or(0);
 
         let max_x = glyphs
             .iter()
@@ -372,7 +372,7 @@ fn get_glyphs_size(
             .filter_map(|g| g.pixel_bounding_box())
             .map(|g| g.max.x)
             .next()
-            .unwrap_or(10);
+            .unwrap_or(0);
         (max_x - min_x) as f32
     };
     let height = { (v_m.ascent - v_m.descent).ceil() };
